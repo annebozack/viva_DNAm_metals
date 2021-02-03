@@ -1,0 +1,767 @@
+---
+title: "Project Viva: cord blood DNAm data processing and descriptive stats"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+
+## Required Packages and functions
+
+```{r,warning=FALSE,message=FALSE,eval=FALSE}
+
+library(sas7bdat)
+library(sva)
+library(reshape)
+library(ggplot2)
+library(gridExtra)
+library(knitr)
+library(dplyr)
+library(kableExtra)
+library(tidyverse)
+library(minfi)
+library(stringr)
+library(limma)
+library(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+library(UpSetR)
+library(reshape)
+library(corrplot)
+library(factoextra)
+
+anno = getAnnotation(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+anno = data.frame(anno)
+```
+
+
+## DNAm and pheno data
+
+```{r,warning=FALSE,message=FALSE,eval= FALSE}
+
+# Load datasets
+pheno = read.sas7bdat('/Users/annebozack/Box/NIEHS-R01 ONES/Phenotype Data/anne_bozack_ac_120720.sas7bdat')
+
+load("/Users/annebozack/Box/DNA Methylation Data/ProjectVivaMethylationBetas_forCPrice_2020-06-10.RData")
+
+objects()
+
+dim(pheno)
+# 2128   88
+
+dim(betas)
+# 470870   1127
+
+dim(fDat)
+# 470870      3
+
+dim(pDat)
+# 1127   20
+
+# Filter Repeats and low QA
+pDat2 <- pDat[pDat$lowQual==T & pDat$filter.gender==T & pDat$filter.geno==T & pDat$repUse==T,]
+dim(pDat2)
+# 1065   20
+
+# Dimentions [False for rows/True for columns (People/Flags)]
+dim(pDat2)==dim(pDat)
+# FALSE  TRUE
+
+# Restrict to CordBlood Only
+pDatcord <- pDat2[pDat2$COLLECTION=="Proband Delivery",]
+dim(pDatcord)
+# 485  20     # 485 samples 
+
+# Add pheno data
+colnames(pheno)[1] = 'alias'
+
+pDatcord = merge(pDatcord, pheno, by = 'alias', all.x = T, all.y = F)
+
+# Subset the methylation data
+pDatcord$samplename[1:5]
+colnames(betas)[1:5]
+
+betascord <- betas[,colnames(betas) %in% pDatcord$samplename]
+dim(betascord)
+# 470870    485
+
+pDatcord <- pDatcord[match(colnames(betascord), pDatcord$samplename),]
+
+identical(pDatcord$samplename, colnames(betascord))
+# TRUE
+
+# Sort to ensure match
+betascord<- betascord[,match(pDatcord$samplename, colnames(betascord))]
+
+identical(pDatcord$samplename, colnames(betascord))
+# TRUE
+
+all(pDatcord$samplename==colnames(betascord))
+# TRUE
+
+## RowNames
+rownames(pDatcord)=pDatcord$samplename
+all(rownames(pDatcord)==colnames(betascord))
+# TRUE
+
+# Filter Out bad probes
+## Subset fDat to only probes you want - try with 95% cutoff
+fDatselect <- fDat[fDat$perc.detected > 95,]
+dim(fDatselect)
+# 467471      3
+
+# subset betascord to fDatselect probes
+betascorduse <- betascord[rownames(betascord) %in% fDatselect$site,]
+dim(betascord) 
+# 470870   485
+
+# match fDat and betascord based on CpG
+fDatselect<- fDatselect[match(fDatselect$site, rownames(betascorduse)),]
+
+identical(fDatselect$site, rownames(betascorduse))
+# TRUE
+
+all(fDatselect$site==rownames(betascorduse))
+# TRUE
+
+dim(fDatselect)
+# 467471      3
+
+dim(betascorduse)
+# 467471    485
+
+# check once again
+all(pDatcord$samplename==colnames(betascorduse))
+# TRUE
+
+# ComBat Adjust by Sample Plate
+# logit transform to M-vals
+range(betascorduse)
+# 0.001630434 0.999792158
+
+dim(betascorduse)
+# 467471    485
+
+Mvalues= log2(betascorduse)-log2(1-betascorduse)
+dim(Mvalues)
+# 467471    485
+
+# Match?
+all(pDatcord$samplename==colnames(Mvalues))
+# TRUE
+
+identical(pDatcord$samplename,colnames(Mvalues))
+# TRUE
+
+# Batch
+table(pDatcord$Batch)
+
+
+# Remove unwanted data
+rm(pDat,fDat,fDatselect,betas,betascord,betascorduse,pDat2);gc()
+
+
+# Filter probes
+anno$NONCPG <- 1*(substring(rownames(anno),1,2)=="ch") 
+table(anno$NONCPG)  
+# 3,091  ch/rs probes
+
+anno$SNP <- 1*(substring(rownames(anno),1,2)=="rs") # 0 rs probes
+table(anno$SNP) 
+# 0 actual SNP Data
+
+# Removing SNP associated probes with MAF>5%
+sum((anno$Probe_maf>=0.05),na.rm=T) 
+# 44683
+
+anno$Probe_r_exclude <- rep(0,dim(anno)[1])
+anno$Probe_r_exclude[anno$Probe_maf>=0.05] <-1
+
+table(anno $Probe_r_exclude)                    
+# 44,683  to exclude
+
+anno = anno[anno$Probe_r_exclude==0,]  # select MAF<5%
+dim(anno) 
+# 440829     36
+
+# SNPs at Single-Base Extension (SBE) removing if MAF>=5%
+anno$SNPatSBE <- rep(0,dim(anno)[1])
+sum((anno$SBE_maf>=0.05),na.rm=T)            
+# 3,398 SNPs at SBE
+
+anno$SNPatSBE[anno$SBE_maf>=0.05] <-1
+table(anno$SNPatSBE)     
+# 3,398 to exclude
+
+anno = anno[anno$SNPatSBE==0,] # Select non polymorphic SBE >5%
+dim(anno) 
+# 437431	37
+
+# SNPs at the actual CpG with MAF>0.05  removing MAF>=5%
+
+anno$SNPatCPG <- rep(0,dim(anno)[1])
+sum((anno$CpG_maf>=0.05),na.rm=T)            
+# 4,056 CpGs on SNPS at MAF>5%
+
+anno$SNPatCPG[anno$CpG_maf>=0.05] <-1
+table(anno$SNPatCPG) 
+# 4,056
+
+anno = anno[anno$SNPatCPG==0,]
+rownames(anno)=anno$TargetID
+dim(anno) 
+# 433375	38
+
+# Remove probes with SNPs within 10 bps of the target site
+
+# Remove Chen Probes
+Chen<-read.csv('/Users/annebozack/Box/NIEHS-R01 ONES/Methylation Data/NonSpecProbes.csv')
+dim(Chen)[1] 
+# 29,233 CpGs
+
+length(intersect(Chen$TargetID, anno$Name))
+# 23,550 overlap after cleaning
+
+# 450K minus Chen probes
+anno.Chen<-anno[!anno$Name %in% Chen$TargetID,]
+dim(anno.Chen) 
+# 409825	38
+
+table(rownames(Mvalues) %in% anno.Chen$Name)
+# FALSE   TRUE 
+# 73011 394460 
+ 
+# drop probes not in anno.Chen dataset
+Mvalues = Mvalues[rownames(Mvalues) %in% anno.Chen$Name,]
+
+dim(Mvalues)
+# 394460    485
+
+
+# run ComBat
+ComBat.Mvalues <- ComBat(dat=Mvalues, batch=pDatcord$Batch)
+
+# convert this back to a beta scale:
+combat.beta <- (2^ComBat.Mvalues)/(2^ComBat.Mvalues + 1)
+
+range(combat.beta) 
+# 0.0006388199 0.9995975091
+
+dim(combat.beta)
+# 394460    485
+
+# Save 
+
+# Match?
+all(pDatcord$samplename==colnames(combat.beta))
+# TRUE
+
+identical(pDatcord$samplename,colnames(combat.beta))
+# TRUE
+
+save(ComBat.Mvalues, combat.beta, pDatcord, file = "/Users/annebozack/Box/NIEHS-R01 ONES/Methylation Data/CordBlood_ComBat_Betas_Mvlas_filteredPorbes.RData")
+```
+
+
+## Removing second child for diplicate family IDs
+
+```{r,warning=FALSE,message=FALSE,eval= FALSE}
+
+# no duplidate IDs
+length(unique(pDatcord$alias))
+# 485
+
+# two duplicate family IDs
+length(unique(pDatcord$FamilyId))
+# 483
+
+# remove second child for diplicate family IDs
+pDatcord$FamilyId[duplicated(pDatcord$FamilyId)]
+# "130011" "130007"
+
+pDatcord[pDatcord$FamilyId %in% pDatcord$FamilyId[duplicated(pDatcord$FamilyId)],]
+
+pDatcord$alias[pDatcord$FamilyId %in% pDatcord$FamilyId[duplicated(pDatcord$FamilyId)] & pDatcord$parity_d == 1]
+# "126385" "123064"
+
+pDatcord = pDatcord[!(pDatcord$alias %in% c("126385", "123064")),]
+
+dim(pDatcord)
+# 483 109
+
+ComBat.Mvalues = ComBat.Mvalues[,colnames(ComBat.Mvalues) %in% pDatcord$samplename]
+ComBat.Mvalues = ComBat.Mvalues[,match(pDatcord$samplename, colnames(ComBat.Mvalues))]
+dim(ComBat.Mvalues)
+# 394460    483
+
+all(pDatcord$samplename==colnames(ComBat.Mvalues))
+# TRUE 
+identical(pDatcord$samplename,colnames(ComBat.Mvalues))
+# TRUE
+
+combat.beta = combat.beta[,colnames(combat.beta) %in% pDatcord$samplename]
+combat.beta = combat.beta[,match(pDatcord$samplename, colnames(combat.beta))]
+dim(combat.beta)
+# 394460    483
+
+all(pDatcord$samplename==colnames(combat.beta))
+# TRUE 
+identical(pDatcord$samplename,colnames(combat.beta))
+# TRUE
+```
+
+### Remove participants with missing metal data
+
+```{r,warning=FALSE,message=FALSE,eval= FALSE, echo = F}
+
+# removing participants with missing metal data
+pDatcordMetal = pDatcord[!is.na(pDatcord$Al),]
+dim(pDatcordMetal)
+
+ComBat.Mvalues.Metals = ComBat.Mvalues[,colnames(ComBat.Mvalues) %in% pDatcordMetal$samplename]
+ComBat.Mvalues.Metals = ComBat.Mvalues.Metals[,match(pDatcordMetal$samplename, colnames(ComBat.Mvalues.Metals))]
+dim(ComBat.Mvalues.Metals)
+# 394460    361
+
+all(pDatcordMetal$samplename==colnames(ComBat.Mvalues.Metals))
+# TRUE 
+identical(pDatcordMetal$samplename,colnames(ComBat.Mvalues.Metals))
+# TRUE
+
+ComBat.Betas.Metals = combat.beta[,colnames(combat.beta) %in% pDatcordMetal$samplename]
+ComBat.Betas.Metals = ComBat.Betas.Metals[,match(pDatcordMetal$samplename, colnames(ComBat.Betas.Metals))]
+dim(ComBat.Betas.Metals)
+# 394460    361
+
+all(pDatcordMetal$samplename==colnames(ComBat.Betas.Metals))
+# TRUE 
+identical(pDatcordMetal$samplename,colnames(ComBat.Betas.Metals))
+# TRUE
+
+rm(combat.beta, ComBat.Mvalues);gc()
+
+```
+
+
+## Descriptive statistics
+
+### Distribution of Beta-values
+
+```{r,warning=FALSE,message=FALSE,eval= FALSE, echo = F}
+
+beta.long = melt(ComBat.Betas.Metals)
+
+ggplot(beta.long, aes(value, color=X2)) + geom_density() + theme_minimal() + theme(legend.position = "none") + scale_color_viridis_d(alpha=0.4)
+
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/cordDNAmDist.png', type = "png", dpi = 300)
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/cordDNAmDist.png")
+```
+
+### Participant characteristics
+
+```{r,warning=FALSE,message=FALSE,eval= FALSE, echo = F}
+
+# function to summarize continuous variables
+tabMedian = function(df, vars){
+	dfDescript = data.frame(matrix(ncol = 3, nrow = length(vars)))
+	colnames(dfDescript) = c('Median', 'IQR', 'N missing')
+	rownames(dfDescript) = vars
+	for (i in 1:length(vars)){
+		dfDescript[i,] = c(round(median(df[[vars[i]]], na.rm = T), 1), paste0(round(quantile(df[[vars[i]]], na.rm=T)[2], 1), ', ', round(quantile(df[[vars[i]]], na.rm = T)[4], 1)), sum(is.na(df[[vars[i]]])))
+	}
+	return(dfDescript)
+}
+
+tab1 = tabMedian(pDatcordMetal, c('gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'zvalue_bwt_gage_sex_d', 'b12_f1a', 'b12_wo_f1a', 'fol_wo_f1a', 'folate_f1a', 'alc_d_f1', 'fish_d_f1'))
+
+
+# function to summarize categorical variables
+tabFreq = function(df, vars){
+	varCat = c()
+	for (i in 1:length(vars)){
+		cat = c()
+		for (j in 1:length(levels(df[[vars[i]]]))){
+			cat = c(cat, paste0(vars[i], '_', levels(df[[vars[i]]])[j]))
+		}
+		varCat = c(varCat, cat)
+	}
+	dfDescript = data.frame(matrix(ncol = 3, nrow = length(varCat)))
+	colnames(dfDescript) = c('n', '%', 'N missing')
+	rownames(dfDescript) = varCat
+	
+	row = 1
+	for (i in 1:length(vars)){
+		for (j in 1:length(levels(df[[vars[i]]]))){
+			dfDescript[row,] = c(table(df[[vars[i]]])[j], round((table(df[[vars[i]]])/nrow(df))[j]*100, 1), sum(is.na(df[[vars[i]]])))
+			row = row + 1
+		}
+	}
+	return(dfDescript)
+}	
+
+pDatcordMetal$parity_d = factor(pDatcordMetal$parity_d)
+pDatcordMetal$education_mom_epi_epia_d = factor(pDatcordMetal$education_mom_epi_epia_d)
+pDatcordMetal$coll_grad = factor(pDatcordMetal$coll_grad)
+pDatcordMetal$female_d = factor(pDatcordMetal$female_d)
+pDatcordMetal$smokpreg_final_d = factor(pDatcordMetal$smokpreg_final_d)
+pDatcordMetal$SMKEXP_EPQ = factor(pDatcordMetal$SMKEXP_EPQ)
+pDatcordMetal$smkexp_mpq = factor(pDatcordMetal$smkexp_mpq)
+pDatcordMetal$csection = factor(pDatcordMetal$csection)
+pDatcordMetal$race_child_3y_dx = factor(pDatcordMetal$race_child_3y_dx)
+pDatcordMetal$gt70k = factor(pDatcordMetal$gt70k)
+
+tab2 = tabFreq(pDatcordMetal, c('parity_d', 'education_mom_epi_epia_d', 'coll_grad', 'gt70k', 'female_d', 'smokpreg_final_d', 'SMKEXP_EPQ', 'smkexp_mpq', 'csection', 'race_child_3y_dx'))
+
+```
+
+```{r, echo = F}
+tab1 %>% kable() %>% kable_styling(font_size = 14) 
+```
+
+```{r, echo = F}
+tab2 %>% kable() %>% kable_styling(font_size = 14) 
+```
+
+### Metals
+
+#### Excluding <LOD 
+
+```{r,warning=FALSE,message=FALSE,eval= FALSE, echo = F}
+
+# function to summarize metal data
+tabMetals = function(df, vars){
+	dfMetal = data.frame(matrix(ncol = 4, nrow = length(vars)))
+	colnames(dfMetal) = c('median', 'IQR', 'n below LOD', 'n missing')
+	rownames(dfMetal) = vars
+	for (i in 1:length(vars)){
+		metal = df[vars[i]][df[,paste0(vars[i], '_comment')] == 0 & !(is.na(df[vars[i]]))]
+		dfMetal[i,] = c(round(median(metal), 1), paste0(round(quantile(metal)[2], 1), ', ', round(quantile(metal)[4], 1)), table(df[,paste0(vars[i], '_comment')] == 37)[2], sum(is.na(df[vars[i]])))
+	}
+	return(dfMetal)
+}
+
+dfMetMedian = tabMetals(pDatcordMetal, c('Al', 'As', 'Ba', 'Cd', 'Co', 'Cr', 'Cs', 'Cu', 'Hg', 'Mg', 'Mn', 'Mo', 'Ni', 'Pb', 'Sb', 'Se', 'Sn', 'Tl', 'V', 'Zn'))
+```
+
+```{r, echo = F}
+dfMetMedian %>% kable() %>% kable_styling(font_size = 14) 
+```
+
+
+#### Replacing <LOD with LOD/sqrt(2)
+
+```{r,warning=FALSE,message=FALSE,eval= FALSE, echo = F}
+
+pDatcordMetal$Al_lod = pDatcordMetal$Al
+pDatcordMetal$Al_lod[pDatcordMetal$Al_comment == 37] = 13.3/sqrt(2)
+
+pDatcordMetal$As_lod = pDatcordMetal$As
+pDatcordMetal$As_lod[pDatcordMetal$As_comment == 37] = 0.153/sqrt(2)
+
+pDatcordMetal$Ba_lod = pDatcordMetal$Ba
+pDatcordMetal$Ba_lod[pDatcordMetal$Ba_comment == 37] = 0.412/sqrt(2)
+
+pDatcordMetal$Cd_lod = pDatcordMetal$Cd
+pDatcordMetal$Cd_lod[pDatcordMetal$Cd_comment == 37] = 0.0569/sqrt(2)
+
+pDatcordMetal$Co_lod = pDatcordMetal$Co
+pDatcordMetal$Co_lod[pDatcordMetal$Co_comment == 37] = 0.0648/sqrt(2)
+
+pDatcordMetal$Cr_lod = pDatcordMetal$Cr
+pDatcordMetal$Cr_lod[pDatcordMetal$Cr_comment == 37] = 0.685/sqrt(2)
+
+pDatcordMetal$Cs_lod = pDatcordMetal$Cs
+pDatcordMetal$Cs_lod[pDatcordMetal$Cs_comment == 37] = 0.0587/sqrt(2)
+
+pDatcordMetal$Cu_lod = pDatcordMetal$Cu
+pDatcordMetal$Cu_lod[pDatcordMetal$Cu_comment == 37] = 1.85/sqrt(2)
+
+pDatcordMetal$Hg_lod = pDatcordMetal$Hg
+pDatcordMetal$Hg_lod[pDatcordMetal$Hg_comment == 37 & !is.na(pDatcordMetal$Hg_comment)] = 0.3/sqrt(2)
+
+pDatcordMetal$Mg_lod = pDatcordMetal$Mg
+pDatcordMetal$Mg_lod[pDatcordMetal$Mg_comment == 37] = 4.15/sqrt(2)
+
+pDatcordMetal$Mn_lod = pDatcordMetal$Mn
+pDatcordMetal$Mn_lod[pDatcordMetal$Mn_comment == 37] = 0.422/sqrt(2)
+
+pDatcordMetal$Mo_lod = pDatcordMetal$Mo
+pDatcordMetal$Mo_lod[pDatcordMetal$Mo_comment == 37] = 0.201/sqrt(2)
+
+pDatcordMetal$Ni_lod = pDatcordMetal$Ni
+pDatcordMetal$Ni_lod[pDatcordMetal$Ni_comment == 37] = 0.484/sqrt(2)
+
+pDatcordMetal$Pb_lod = pDatcordMetal$Pb
+pDatcordMetal$Pb_lod[pDatcordMetal$Pb_comment == 37] = 0.0746/sqrt(2)
+
+pDatcordMetal$Sb_lod = pDatcordMetal$Sb
+pDatcordMetal$Sb_lod[pDatcordMetal$Sb_comment == 37] = 0.0937/sqrt(2)
+
+pDatcordMetal$Se_lod = pDatcordMetal$Se
+pDatcordMetal$Se_lod[pDatcordMetal$Se_comment == 37] = 1.73/sqrt(2)
+
+pDatcordMetal$Sn_lod = pDatcordMetal$Sn
+pDatcordMetal$Sn_lod[pDatcordMetal$Sn_comment == 37] = 1.41/sqrt(2)
+
+pDatcordMetal$Tl_lod = pDatcordMetal$Tl
+pDatcordMetal$Tl_lod[pDatcordMetal$Tl_comment == 37] = 0.0937/sqrt(2)
+
+pDatcordMetal$V_lod = pDatcordMetal$V
+pDatcordMetal$V_lod[pDatcordMetal$V_comment == 37] = 0.0475/sqrt(2)
+
+pDatcordMetal$Zn_lod = pDatcordMetal$Zn
+pDatcordMetal$Zn_lod[pDatcordMetal$Zn_comment == 37] = 8.74/sqrt(2)
+
+# function to summarize metals data
+tabMetals_lod = function(df, vars){
+	dfMetal = data.frame(matrix(ncol = 2, nrow = length(vars)))
+	colnames(dfMetal) = c('median', 'IQR')
+	rownames(dfMetal) = vars
+	for (i in 1:length(vars)){
+		metal = df[[vars[i]]][!(is.na(df[[vars[i]]]))]
+		dfMetal[i,] = c(round(median(metal), 1), paste0(round(quantile(metal)[2], 1), ', ', round(quantile(metal)[4], 1)))
+	}
+	return(dfMetal)
+}
+
+dfMetMedian_lod = tabMetals_lod(pDatcordMetal, c('Al_lod', 'As_lod', 'Ba_lod', 'Cd_lod', 'Co_lod', 'Cr_lod', 'Cs_lod', 'Cu_lod', 'Mg_lod', 'Mn_lod', 'Mo_lod', 'Ni_lod', 'Pb_lod', 'Sb_lod', 'Se_lod', 'Sn_lod', 'Tl_lod', 'V_lod', 'Zn_lod'))
+```
+
+```{r, echo = F}
+dfMetMedian %>% kable() %>% kable_styling(font_size = 14) 
+```
+
+
+```{r,warning=FALSE,message=FALSE, echo = F}
+
+Al1_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Al_lod),], aes(Al_lod)) + geom_histogram(alpha = 0.5, fill = "#9E0142") + theme_minimal() + labs(title = 'Al')
+Al2_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Al_lod),], aes(log(Al_lod, 2))) + geom_histogram(alpha = 0.5, fill = "#9E0142") + theme_minimal() + labs(title = 'log2 Al')
+
+As1_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$As_lod),], aes(As_lod)) + geom_histogram(alpha = 0.5, fill = "#D53E4F") + theme_minimal() + labs(title = 'As')
+As2_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$As_lod),], aes(log(As_lod, 2))) + geom_histogram(alpha = 0.5, fill = "#D53E4F") + theme_minimal() + labs(title = 'log2 As')
+
+Ba1_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Ba_lod),], aes(Ba_lod)) + geom_histogram(alpha = 0.5, fill = "#F46D43") + theme_minimal() + labs(title = 'Ba')
+Ba2_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Ba_lod),], aes(log(Ba_lod, 2))) + geom_histogram(alpha = 0.5, fill = "#F46D43") + theme_minimal() + labs(title = 'log2 Ba')
+
+Cd1_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Cd_lod),], aes(Cd_lod)) + geom_histogram(alpha = 0.5, fill = "#FDAE61") + theme_minimal() + labs(title = 'Cd')
+Cd2_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Cd_lod),], aes(log(Cd_lod, 2))) + geom_histogram(alpha = 0.5, fill = "#FDAE61") + theme_minimal() + labs(title = 'log2 Cd')
+
+Co1_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Co_lod),], aes(Co_lod)) + geom_histogram(alpha = 0.9, fill = "#FEE08B") + theme_minimal() + labs(title = 'Co')
+Co2_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Co_lod),], aes(log(Co_lod, 2))) + geom_histogram(alpha = 0.9, fill = "#FEE08B") + theme_minimal() + labs(title = 'log2 Co')
+
+Cr1_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Cr_lod),], aes(Cr_lod)) + geom_histogram(alpha = 0.9, fill = "#FFFFBF") + theme_minimal() + labs(title = 'Cr')
+Cr2_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Cr_lod),], aes(log(Cr_lod, 2))) + geom_histogram(alpha = 0.9, fill = "#FFFFBF") + theme_minimal() + labs(title = 'log2 Cr')
+
+Cu1_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Cu_lod),], aes(Cu_lod)) + geom_histogram(alpha = 0.8, fill = "#E6F598") + theme_minimal() + labs(title = 'Cu')
+Cu2_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Cu_lod),], aes(log(Cu_lod, 2))) + geom_histogram(alpha = 0.8, fill = "#E6F598") + theme_minimal() + labs(title = 'log2 Cu')
+
+Cs1_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Cs_lod),], aes(Cs_lod)) + geom_histogram(alpha = 0.8, fill = "#ABDDA4") + theme_minimal() + labs(title = 'Cs')
+Cs2_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Cs_lod),], aes(log(Cs_lod, 2))) + geom_histogram(alpha = 0.8, fill = "#ABDDA4") + theme_minimal() + labs(title = 'log2 Cs')
+
+Hg1_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Hg_lod),], aes(Hg_lod)) + geom_histogram(alpha = 0.5, fill = "#66C2A5") + theme_minimal() + labs(title = 'Hg')
+Hg2_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Hg_lod),], aes(log(Hg_lod, 2))) + geom_histogram(alpha = 0.5, fill = "#66C2A5") + theme_minimal() + labs(title = 'log2 Hg')
+
+Mg1_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Mg_lod),], aes(Mg_lod)) + geom_histogram(alpha = 0.5, fill = "#5E4FA2") + theme_minimal() + labs(title = 'Mg')
+Mg2_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Mg_lod),], aes(log(Mg_lod, 2))) + geom_histogram(alpha = 0.5, fill = "#5E4FA2") + theme_minimal() + labs(title = 'log2 Mg')
+
+Mn1_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Mn_lod),], aes(Mn_lod)) + geom_histogram(alpha = 0.5, fill = "#9E0142") + theme_minimal() + labs(title = 'Mn')
+Mn2_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Mn_lod),], aes(log(Mn_lod, 2))) + geom_histogram(alpha = 0.5, fill = "#9E0142") + theme_minimal() + labs(title = 'log2 Mn')
+
+Mo1_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Mo_lod),], aes(Mo_lod)) + geom_histogram(alpha = 0.5, fill = "#D53E4F") + theme_minimal() + labs(title = 'Mo')
+Mo2_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Mo_lod),], aes(log(Mo_lod, 2))) + geom_histogram(alpha = 0.5, fill = "#D53E4F") + theme_minimal() + labs(title = 'log2 Mo')
+
+Ni1_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Ni_lod),], aes(Ni_lod)) + geom_histogram(alpha = 0.5, fill = "#F46D43") + theme_minimal() + labs(title = 'Ni')
+Ni2_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Ni_lod),], aes(log(Ni_lod, 2))) + geom_histogram(alpha = 0.5, fill = "#F46D43") + theme_minimal() + labs(title = 'log2 Ni')
+
+Pb1_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Pb_lod),], aes(Pb_lod)) + geom_histogram(alpha = 0.5, fill = "#FDAE61") + theme_minimal() + labs(title = 'Pb')
+Pb2_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Pb_lod),], aes(log(Pb_lod, 2))) + geom_histogram(alpha = 0.5, fill = "#FDAE61") + theme_minimal() + labs(title = 'log2 Pb')
+
+Sb1_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Sb_lod),], aes(Sb_lod)) + geom_histogram(alpha = 0.9, fill = "#FEE08B") + theme_minimal() + labs(title = 'Sb')
+Sb2_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Sb_lod),], aes(log(Sb_lod, 2))) + geom_histogram(alpha = 0.9, fill = "#FEE08B") + theme_minimal() + labs(title = 'log2 Sb')
+
+Se1_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Se_lod),], aes(Se_lod)) + geom_histogram(alpha = 0.9, fill = "#FFFFBF") + theme_minimal() + labs(title = 'Se')
+Se2_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Se_lod),], aes(log(Se_lod, 2))) + geom_histogram(alpha = 0.9, fill = "#FFFFBF") + theme_minimal() + labs(title = 'log2 Se')
+
+Sn1_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Sn_lod),], aes(Sn_lod)) + geom_histogram(alpha = 0.8, fill = "#E6F598") + theme_minimal() + labs(title = 'Sn')
+Sn2_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Sn_lod),], aes(log(Sn_lod, 2))) + geom_histogram(alpha = 0.8, fill = "#E6F598") + theme_minimal() + labs(title = 'log2 Sn')
+
+V1_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$V_lod),], aes(V_lod)) + geom_histogram(alpha = 0.8, fill = "#ABDDA4") + theme_minimal() + labs(title = 'V')
+V2_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$V_lod),], aes(log(V_lod, 2))) + geom_histogram(alpha = 0.8, fill = "#ABDDA4") + theme_minimal() + labs(title = 'log2 V')
+
+Zn1_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Zn_lod),], aes(Zn_lod)) + geom_histogram(alpha = 0.5, fill = "#66C2A5") + theme_minimal() + labs(title = 'Zn')
+Zn2_lod = ggplot(pDatcordMetal[!is.na(pDatcordMetal$Zn_lod),], aes(log(Zn_lod, 2))) + geom_histogram(alpha = 0.5, fill = "#66C2A5") + theme_minimal() + labs(title = 'log2 Zn')
+```
+
+### Distribution of metal concentrations
+
+```{r,warning=FALSE,message=FALSE, echo = F}
+grid.arrange(Al1_lod, Al2_lod, ncol = 2)
+grid.arrange(As1_lod, As2_lod, ncol = 2)
+grid.arrange(Ba1_lod, Ba2_lod, ncol = 2)
+grid.arrange(Cd1_lod, Cd2_lod, ncol = 2)
+grid.arrange(Co1_lod, Co2_lod, ncol = 2)
+grid.arrange(Cr1_lod, Cr2_lod, ncol = 2)
+grid.arrange(Cs1_lod, Cs2_lod, ncol = 2)
+grid.arrange(Cu1_lod, Cu2_lod, ncol = 2)
+grid.arrange(Hg1_lod, Hg2_lod, ncol = 2)
+grid.arrange(Mg1_lod, Mg2_lod, ncol = 2)
+grid.arrange(Mn1_lod, Mn2_lod, ncol = 2)
+grid.arrange(Mo1_lod, Mo2_lod, ncol = 2)
+grid.arrange(Ni1_lod, Ni2_lod, ncol = 2)
+grid.arrange(Pb1_lod, Pb2_lod, ncol = 2)
+grid.arrange(Sb1_lod, Sb2_lod, ncol = 2)
+grid.arrange(Se1_lod, Se2_lod, ncol = 2)
+grid.arrange(Sn1_lod, Sn2_lod, ncol = 2)
+grid.arrange(V1_lod, V2_lod, ncol = 2)
+grid.arrange(Zn1_lod, Zn2_lod, ncol = 2)
+```
+
+## Correlation between metals (insignificant correlations are not shaded)
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE, echo = F}
+M = cor(pDatcordMetal[,c('As', 'Ba', 'Cd', 'Cr', 'Cs', 'Cu', 'Hg', 'Mg', 'Mn', 'Pb', 'Se', 'Zn')], method = 'spearman', use='complete')
+res1 = cor.mtest(pDatcordMetal[,c('As', 'Ba', 'Cd', 'Cr', 'Cs', 'Cu', 'Hg', 'Mg', 'Mn', 'Pb', 'Se', 'Zn')], conf.level = .95, method = 'spearman', exact = F, use='complete')
+```
+
+```{r, warning=FALSE,message=FALSE,eval = F}
+corrplot(M, method = "color", 
+         type = "upper", number.cex = .7,
+         addCoef.col = "black", # Add coefficient of correlation
+         tl.col = "black", tl.srt = 90, # Text label color and rotation
+         # Combine with significance
+         p.mat = res1$p, sig.level = 0.05, insig = "blank", 
+         # hide correlation coefficient on the principal diagonal
+         diag = FALSE)
+         
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/metalCorr.png', type = "png", dpi = 300)
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/metalCorr.png")
+```
+
+
+## Clean covariate data and log2 transformations
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+pDatcordMetal$race_child2[pDatcordMetal$race_child_3y_dx == 'white'] = 1  # white = reference
+pDatcordMetal$race_child2[pDatcordMetal$race_child_3y_dx == 'black'] = 2 # black
+pDatcordMetal$race_child2[pDatcordMetal$race_child_3y_dx == 'hispa'] = 3 # hispanic
+pDatcordMetal$race_child2[pDatcordMetal$race_child_3y_dx == 'asian'] = 4 # asian
+pDatcordMetal$race_child2[pDatcordMetal$race_child_3y_dx == 'more than 1 race' | pDatcordMetal$race_child_3y_dx == 'other'] = 5 # more than 1 race or other
+pDatcordMetal$race_child2 = factor(pDatcordMetal$race_child2)
+
+pDatcordMetal$smk_preg[pDatcordMetal$smokpreg_final_d == 'smoke preg'] = 1
+pDatcordMetal$smk_preg[pDatcordMetal$smokpreg_final_d == 'xnever' | pDatcordMetal$smokpreg_final_d == 'former'] = 0
+pDatcordMetal$smk_preg = factor(pDatcordMetal$smk_preg)
+
+# log2 transformation
+pDatcordMetal$Al_log2 = log(pDatcordMetal$Al_lod, 2)
+pDatcordMetal$As_log2 = log(pDatcordMetal$As_lod, 2)
+pDatcordMetal$Ba_log2 = log(pDatcordMetal$Ba_lod, 2)
+pDatcordMetal$Cd_log2 = log(pDatcordMetal$Cd_lod, 2)
+pDatcordMetal$Co_log2 = log(pDatcordMetal$Co_lod, 2)
+pDatcordMetal$Cr_log2 = log(pDatcordMetal$Cr_lod, 2)
+pDatcordMetal$Cs_log2 = log(pDatcordMetal$Cs_lod, 2)
+pDatcordMetal$Cu_log2 = log(pDatcordMetal$Cu_lod, 2)
+pDatcordMetal$Mg_log2 = log(pDatcordMetal$Mg_lod, 2)
+pDatcordMetal$Hg_log2 = log(pDatcordMetal$Hg_lod, 2)
+pDatcordMetal$Mn_log2 = log(pDatcordMetal$Mn_lod, 2)
+pDatcordMetal$Mo_log2 = log(pDatcordMetal$Mo_lod, 2)
+pDatcordMetal$Ni_log2 = log(pDatcordMetal$Ni_lod, 2)
+pDatcordMetal$Pb_log2 = log(pDatcordMetal$Pb_lod, 2)
+pDatcordMetal$Sb_log2 = log(pDatcordMetal$Sb_lod, 2)
+pDatcordMetal$Se_log2 = log(pDatcordMetal$Se_lod, 2)
+pDatcordMetal$Sn_log2 = log(pDatcordMetal$Sn_lod, 2)
+pDatcordMetal$Tl_log2 = log(pDatcordMetal$Tl_lod, 2)
+pDatcordMetal$V_log2 = log(pDatcordMetal$V_lod, 2)
+pDatcordMetal$Zn_log2 = log(pDatcordMetal$Zn_lod, 2)
+
+# Indicator variable for above LOD
+pDatcordMetal$Al_det[pDatcordMetal$Al_comment == 37] = 1
+pDatcordMetal$Al_det[pDatcordMetal$Al_comment == 0] = 0
+pDatcordMetal$As_det[pDatcordMetal$As_comment == 37] = 1
+pDatcordMetal$As_det[pDatcordMetal$As_comment == 0] = 0
+pDatcordMetal$Ba_det[pDatcordMetal$Ba_comment == 37] = 1
+pDatcordMetal$Ba_det[pDatcordMetal$Ba_comment == 0] = 0
+pDatcordMetal$Cd_det[pDatcordMetal$Cd_comment == 37] = 1
+pDatcordMetal$Cd_det[pDatcordMetal$Cd_comment == 0] = 0
+pDatcordMetal$Co_det[pDatcordMetal$Co_comment == 37] = 1
+pDatcordMetal$Co_det[pDatcordMetal$Co_comment == 0] = 0
+pDatcordMetal$Cr_det[pDatcordMetal$Cr_comment == 37] = 1
+pDatcordMetal$Cr_det[pDatcordMetal$Cr_comment == 0] = 0
+pDatcordMetal$Hg_det[pDatcordMetal$Hg_comment == 37 & !is.na(pDatcordMetal$Hg_comment)] = 1
+pDatcordMetal$Hg_det[pDatcordMetal$Hg_comment == 0 & !is.na(pDatcordMetal$Hg_comment)] = 0
+pDatcordMetal$Mn_det[pDatcordMetal$Mn_comment == 37] = 1
+pDatcordMetal$Mn_det[pDatcordMetal$Mn_comment == 0] = 0
+pDatcordMetal$Mo_det[pDatcordMetal$Mo_comment == 37] = 1
+pDatcordMetal$Mo_det[pDatcordMetal$Mo_comment == 0] = 0
+pDatcordMetal$Ni_det[pDatcordMetal$Ni_comment == 37] = 1
+pDatcordMetal$Ni_det[pDatcordMetal$Ni_comment == 0] = 0
+pDatcordMetal$Sb_det[pDatcordMetal$Sb_comment == 37] = 1
+pDatcordMetal$Sb_det[pDatcordMetal$Sb_comment == 0] = 0
+pDatcordMetal$Sn_det[pDatcordMetal$Sn_comment == 37] = 1
+pDatcordMetal$Sn_det[pDatcordMetal$Sn_comment == 0] = 0
+pDatcordMetal$V_det[pDatcordMetal$V_comment == 37] = 1
+pDatcordMetal$V_det[pDatcordMetal$V_comment == 0] = 0
+
+```
+
+## Associations with cell type %
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# function for generating table with lm results
+cellAssoc = function(data, cells, metals){
+	results = data.frame(matrix(nrow = length(metals), ncol = length(cells)*2))
+	rownames(results) = metals
+	colnames(results) = unlist(lapply(1:length(cells), function(x) c(paste0(cells[x], '_B'), paste0(cells[x], '_p'))))
+	for (i in 1:length(metals)){
+		metals_comment = paste0(metals, '_comment')
+		metals_log2 = paste0(metals, '_log2')
+		# testing associations for metals detected in >= 80% of samples
+		for (j in 1:length(cells)){
+			col = j + (j-1)
+			mod = lm((data[[cells[j]]] * 100) ~ data[[metals_log2[i]]] + data$female_d + data$race_child2 + data$gestage_wks_deliv_d + data$age_mom_enroll_d + data$bmi_mom_prepreg_d + data$coll_grad + data$nullip + data$gt70k + data$smk_preg)
+			results[i,col] = summary(mod)$coefficients[2,1]
+			results[i,col+1] = summary(mod)$coefficients[2,4]
+		}
+	}
+	return(results)
+}
+
+# metals detected in > 80% of samples
+metals = c('As', 'Ba', 'Cd', 'Cr', 'Cs', 'Cu', 'Hg', 'Mg', 'Mn', 'Pb', 'Se', 'Zn')
+
+# cord blood cell types
+cells = c('Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb')
+
+cellAssocTab = cellAssoc(pDatcordMetal, cells, metals)
+
+cellAssocTab = round(cellAssocTab, 3)
+
+colnames(cellAssocTab) = rep(c('B', 'p'), times = 7)
+
+```
+
+```{r,warning=FALSE,message=FALSE,echo = F}
+kbl(cellAssocTab) %>% kable_paper() %>% add_header_above(c(" ", "B cell 1" = 2, "CD4T" = 2, "CD8T" = 2, "Gran" = 2, "Mono" = 2, "NK" = 2, "nRBC" = 2))
+```
+
+## Save cleaned datasets
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+save(ComBat.Mvalues.Metals, ComBat.Betas.Metals, pDatcordMetal, file = "/Users/annebozack/Box/NIEHS-R01 ONES/Methylation Data/CordBlood_ComBat_Betas_Mvlas_filteredPorbes_metalAnalysis.RData")
+```
+
+
+
+
+
+
+
+
+

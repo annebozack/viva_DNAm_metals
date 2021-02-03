@@ -1,0 +1,2942 @@
+---
+title: "Project Viva: cord blood DNAm and metals EWAS"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+
+## Required Packages and functions
+
+```{r library,warning=FALSE,message=FALSE,eval=FALSE}
+# libraries
+library(sas7bdat)
+library(sva)
+library(reshape)
+library(ggplot2)
+library(gridExtra)
+library(knitr)
+library(dplyr)
+library(kableExtra)
+library(tidyverse)
+library(minfi)
+library(stringr)
+library(limma)
+library(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+library(minfi)
+library(DMRcate)
+library(UpSetR)
+library(reshape)
+library(corrplot)
+library(factoextra)
+library(ENmix)
+
+# loading annotation
+anno = getAnnotation(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+anno = data.frame(anno)
+
+# functions
+# manhattan polt
+manhattan = function(probe, region, FDR = FALSE, annotate = NULL, title = NULL){
+	# chromosome as numeric
+	probe$chr = as.numeric(gsub("chr", "", probe$chr))
+
+	# dataframes with common columns
+	probe = data.frame(name = probe$cpg, p = probe$P.Value, fdr = probe$adj.P.Val, bonf = probe$adj.P.Val.bonf, chr = probe$chr, pos = probe$pos, type = 'position', dmp_sig = NA, color = NA)
+	region_df = data.frame(name = as.character(seq(1:nrow(region))), p = NA, fdr = NA, bonf = NA, chr = region$chr, pos = region$start, type = 'region', dmp_sig = NA, color = NA, size = NA)
+
+	# indicating probes within regions
+	for (i in 1:length(region$chr)){
+		probe$dmp_sig[(probe$chr == region$chr[i]) & (probe$pos >= region$start[i]) & (probe$pos <= region$end[i])] = 1
+	}
+	# variable for point color
+	probe$color[probe$dmp_sig == 1] = 50
+	probe$color[probe$fdr < 0.05] = 100
+	probe$color[is.na(probe$color)] = probe$chr[is.na(probe$color)]
+	# variable for point size
+	probe$size[probe$color == 50 | probe$color == 100] = 1
+	probe$size[is.na(probe$size)] = 0.5
+
+	# combine dataframes
+	df_comb = rbind(probe, region_df)
+
+	# dataset for plotting
+		don = df_comb %>% 
+	  		# Compute chromosome size
+				group_by(chr) %>% summarise(chr_len=as.numeric(max(pos))) %>% 
+	  		# Calculate cumulative position of each chromosome
+	 			mutate(tot=cumsum(chr_len)-chr_len) %>% dplyr::select(-chr_len) %>%
+	  		# Add this info to the initial dataset
+	  			left_join(df_comb, ., by=c("chr"="chr")) %>%
+	  		# Add a cumulative position of each site
+				arrange(chr, pos) %>% mutate(poscum=pos+tot) # %>%
+	 		# Prepare X axis
+				axisdf = don %>% group_by(chr) %>% summarize(center=(max(poscum) + min(poscum))/2)
+		don = merge(don, df_comb, on='name', all.x=T)
+		don = don[order(don$size),]
+		don_position = don[don$type == 'position',]
+		don_region = don[don$type == 'region',]
+	
+		colors = c("#969696", "#737373", "#969696", "#737373", "#969696", "#737373", "#969696", "#737373", "#969696", "#737373", "#969696", "#737373", "#969696", "#737373", "#969696", "#737373", "#969696", "#737373", "#969696", "#737373", "#969696", "#737373", '#2166ac', 'black')
+	
+	manhattan = ggplot(don_position, aes(x=poscum, y=-log10(p))) +
+	geom_point(aes(color=as.factor(color)), size= don_position$size, alpha = don_position$size) + scale_color_manual(values = colors) +
+    # p-value cutoffs
+	geom_hline(yintercept=-log10(0.05/nrow(don_position)), colour = '#AB3428', size=.2, alpha = 0.5) +
+	geom_vline(xintercept= don_region$poscum, colour = '#4393c3', size=.2) +
+	# custom axes:
+	scale_x_continuous(expand = c(0.005, 0.005), limits = c(min(don_position$poscum), max(don_position$poscum)), label = axisdf$chr, breaks= axisdf$center) +
+	scale_y_continuous(expand = c(0, 0), limits = c(0, (max(-log10(don_position$p)) + 0.5)), breaks = seq(from = 0, to = (max(-log10(don_position$p)) + 0.5), by = 1)) +
+	# Custom theme:
+    theme_minimal() + theme( 
+	legend.position="none", panel.border = element_blank(), panel.grid.minor.y = element_blank(), panel.grid.major.x = element_blank(), panel.grid.minor.x = element_blank(), panel.grid.major.y = element_blank(), text = element_text(size = 7.5)) + 
+    labs(y=expression(-log[10](italic(p))), x='Chromosome') 
+    if (!is.null(title)){
+    	manhattan = manhattan + labs(title = title)
+    }
+    if (FDR == TRUE){
+    	manhattan = manhattan + geom_hline(yintercept=-log10(max(don_position$p[don_position$fdr < 0.05])), colour='#AB3428', size=.2, alpha = 0.5, linetype = "dashed")
+    } 
+    if (!is.null(annotate)){
+		manhattan = manhattan + annotate("text", x = max(don_position$poscum)*0.05, y = max(-log10(don_position$p)), label = annotate, size = 4)
+	}
+	return(manhattan)
+}
+
+# lambda
+lambda = function(p) median(qchisq(p, df=1, lower.tail=FALSE), na.rm=TRUE) / qchisq(0.5, df=1)
+
+gg_qqplot = function(pvector){
+	l = round(lambda(pvector), 3)
+	o = -log10(sort(pvector, decreasing = FALSE))
+	e = -log10(ppoints(length(pvector)))
+	df = data.frame(o = o, e = e)
+	ggplot(df, aes(e, o)) + geom_point(alpha = 0.5, size = 1) + geom_abline(intercept = 0, slope = 1, color = '#AB3428') + labs(y = expression(Observed ~ ~-log[10](italic(p))), x = expression(Expected ~ ~-log[10](italic(p)))) + theme_classic() + annotate("text", x = 1, y = 5, label = paste0('lambda = ', l))
+}
+
+# volcano
+volcano = function(probe, type = 'DMP'){
+	if (type == 'DMP'){
+		volcano = ggplot(probe, aes(x=logFC, y  = -log10(P.Value))) + 
+		geom_point(size = 0.8, alpha=0.4) + 
+		geom_hline(aes(yintercept = -log10(0.05/nrow(probe)),linetype = 'Bonferroni threshold'), color = "#AB3428", size = 0.5) + 
+	#	geom_hline(aes(yintercept = -log10(max(P.Value[adj.P.Val < 0.05])),linetype = 'FDR threshold'), color = "#AB3428", size = 0.3) + 
+		scale_linetype_manual(name = '', values = c(1,2), guide = guide_legend(override.aes = list(color = c("#AB3428", "#AB3428")))) + theme_minimal() + 
+		labs(y=expression(-log[10]*"(P-value)"), x='Effect estimate') + theme(panel.grid.minor.y = element_blank()) + theme(text = element_text(size=8)) + 
+		theme(legend.position="none") + scale_y_continuous(expand = c(0, 0)) + theme(panel.grid.minor.x = element_blank(), panel.grid.major.y = element_line(size = 0.2, color = 'gray65'), panel.grid.major.x = element_line(size = 0.2, color = 'gray65'))
+		return(volcano)
+	} else if (type == 'DVP'){
+		volcano = ggplot(probe, aes(x= DiffLevene, y  = -log10(P.Value))) + 
+		geom_point(size = 0.8, alpha=0.4) + 
+		geom_hline(aes(yintercept = -log10(0.05/nrow(probe)),linetype = 'Bonferroni threshold'), color = "#AB3428", size = 0.5) + 
+		geom_hline(aes(yintercept = -log10(max(P.Value[Adj.P.Value < 0.05])),linetype = 'FDR threshold'), color = "#AB3428", size = 0.3) + 
+		scale_linetype_manual(name = '', values = c(1,2), guide = guide_legend(override.aes = list(color = c("#AB3428", "#AB3428")))) + theme_minimal() + 
+		labs(y=expression(-log[10]*"(P-value)"), x='Effect estimate') + theme(panel.grid.minor.y = element_blank()) + theme(text = element_text(size=8)) + 
+		theme(legend.position="none") + scale_y_continuous(expand = c(0, 0)) + theme(panel.grid.minor.x = element_blank(), panel.grid.major.y = element_line(size = 0.2, color = 'gray65'), panel.grid.major.x = element_line(size = 0.2, color = 'gray65'))
+		return(volcano)
+	}
+}
+
+# DMP analysis
+run_DMP <- function(mvals, design){
+  # fit model
+  l_fit <- limma::lmFit(object = mvals, design = design)
+  
+  # extract standard errors
+  std_err <- l_fit$stdev.unscaled[,2]*l_fit$sigma
+  std_err_df <- data.frame(std_err)
+  std_err_df$cpg <- rownames(std_err_df)
+  
+  e_fit <- limma::eBayes(l_fit, robust = TRUE)
+  
+  # extract results and add Bonferroni correction
+  p_top <- limma::topTable(e_fit, adjust = "BH", coef = 2, num = Inf, confint = TRUE)
+  p_top <- p_top[order(p_top$P.Value), , drop = FALSE]
+  p_top$adj.P.Val.bonf <- topTable(e_fit, adjust="bonferroni", coef=2, number = Inf)$adj.P.Val
+  
+  # merge results and standard errors
+  p_top$cpg <- rownames(p_top)
+  p_top <- merge(p_top, std_err_df, by = 'cpg')
+  rownames(p_top) <- p_top$cpg
+  
+  return(p_top)
+}
+
+# Combp
+acf.table<-function(x,loc,dist.cutoff){
+  flag=TRUE; lag=1; result=NULL
+  while(flag){
+    x1=head(x,-lag); x2=tail(x,-lag); dist=diff(loc,lag=lag)
+    index=(dist<dist.cutoff)  
+    if(all(!index)){flag=FALSE}else{
+      result=rbind(result,data.frame(x1=x1[index],x2=x2[index],dist=dist[index]))
+    lag=lag+1
+    }
+  }
+  return(result)  
+}
+
+get.acf<-function(data,dist.cutoff,bin.size){
+  temp<-NULL
+  for (chr in unique(as.vector(data$chr))){
+    y<-data[as.vector(data$chr)==chr,]; y<-y[order(y$end),]
+    temp<-rbind(temp,acf.table(y$p,y$end,dist.cutoff))
+  }
+  bin.label<-findInterval(temp$dist,seq(bin.size,dist.cutoff,bin.size))
+  temp.stouffer<-by(temp,bin.label,FUN=function(x){cor.test(qnorm(x$x1),
+               qnorm(x$x2),alternative="greater")},simplify=FALSE)
+
+  cor.stouffer<-sapply(temp.stouffer,function(x){x$estimate})
+  p.stouffer<-sapply(temp.stouffer,function(x){x$p.value})
+
+  if (any(p.stouffer>0.05)){
+    index=min(which(p.stouffer>0.05))
+    cor.stouffer[index:length(cor.stouffer)]=0
+  }
+  return(cor.stouffer)
+}
+
+regplot<-function(ref,sig,extend=2000,outf="region_plot.pdf"){
+  sig=sig[order(sig[,"chr"],sig[,"start"]),]
+  ref=ref[order(ref[,"chr"],ref[,"start"]),]
+
+  pdf(outf)
+  for(i in 1:nrow(sig)){
+    chr=as.vector(sig$chr[i])
+    pos1=sig$start[i]
+    pos2=sig$end[i]
+    subset=ref[as.vector(ref$chr)==chr & ref$start>=(pos1-extend) & ref$start<=(pos2+extend),]
+    subset$cor="black"
+    subset$cor[subset$start>=pos1 &subset$start<=pos2]="red"
+
+    ylab=bquote('-log'['10']*'(P) value')
+
+    plot(subset$start,-log10(subset$p),col=subset$cor,pch=20,xlim=c(pos1-extend,
+          pos2+extend),xlab="Chromosome position",ylab=ylab)
+  }
+  dev.off()
+}
+
+# comb_p-like method
+combp2<-function(data,dist.cutoff=1000,bin.size=310,seed=0.01,
+               region_plot=TRUE,mht_plot=TRUE,nCores=10,verbose=TRUE){
+  if(nCores>detectCores()){nCores=detectCores()}
+  data=as.data.frame(data)
+  data$start=as.numeric(as.vector(data$start))
+  data$end=as.numeric(as.vector(data$end))
+  data=data[!is.na(data$start) & !is.na(data$end),]
+  data$p=as.numeric(as.vector(data$p))
+
+  acf<-get.acf(data,dist.cutoff,bin.size)
+  if(verbose){
+    cat("P value correlations:\n")
+    bin=seq(bin.size,dist.cutoff,bin.size)
+    if(!(dist.cutoff%%bin.size==0)){bin=c(bin,dist.cutoff)}
+    print(data.frame(bin=bin,acf=acf))
+  }
+
+  result<-mclapply(unique(as.vector(data$chr)), function(chr){
+    y=data[as.vector(data$chr)==chr,]; y=y[order(y$end),]
+    pos=y$end; p=qnorm(y$p)
+
+    temp=sapply(pos,function(i){
+      index.i=(abs(pos-i)<bin.size);
+      if (sum(index.i)>1){  
+        int<-findInterval(c(dist(pos[index.i])),c(bin.size,2*bin.size))
+        sd<-sqrt(sum(acf[int+1])*2+sum(index.i))
+        return(pnorm(sum(p[index.i]),mean=0,sd=sd))
+      }else{return(y$p[index.i])}
+    })
+
+    return(data.frame(chr,start=pos,end=pos,s.p=temp))
+  },mc.cores=nCores)
+
+  result <- do.call("rbind", result)
+  names(result)=c("chr","start","end","s.p")
+
+  result=result[p.adjust(result$s.p,method="fdr")<seed,]
+
+  result.fdr=NULL
+  if (nrow(result)>0){
+    for (chr in unique(result$"chr")){
+      y=data[as.vector(data$chr)==chr,]; y=y[order(y$end),]
+      pos=y$end; p=qnorm(y$p)
+
+      result.chr=result[result$"chr"==chr,]
+      a=IRanges::IRanges(start=result.chr$start,end=result.chr$end)
+      b=IRanges::reduce(a,min.gapwidth=dist.cutoff)
+
+      start=IRanges::start(b); end=IRanges::end(b)
+      region.max<-max(IRanges::width(b))
+      temp=sapply(1:length(b),function(i){
+        index.i=(pos>=start[i] & pos<=end[i]);
+        if (sum(index.i)>1){  
+          int<-findInterval(c(dist(pos[index.i])),
+              seq(bin.size,region.max+bin.size,bin.size))
+          sd<-sqrt(sum(ifelse(int<length(acf),
+              acf[int+1],0))*2+sum(index.i))
+          return(pnorm(sum(p[index.i]),mean=0,sd=sd))
+        }else{return(y$p[index.i])}
+      })
+      result.fdr=rbind(result.fdr,data.frame(chr,start,end,p=temp))
+    }
+    
+    result.fdr$length = (result.fdr$end - result.fdr$start) + 1
+    result.fdr = result.fdr[result.fdr$length > 1,]
+
+    ##### BH FDR correction and Sidak correction
+    result.fdr$fdr=p.adjust(result.fdr$p,method="fdr")
+    result.fdr$sidak=(1-(1-result.fdr$p)^(nrow(data)/(result.fdr$end-result.fdr$start+1)))
+    result.fdr<-result.fdr[order(result.fdr$p),]
+
+    ##### use 0-coordinate
+    result.fdr$start=(result.fdr$start-1)
+  }
+
+  if(is.null(result.fdr)){cat("Number of identified DMR:  0\n")}else{
+    ndmr=nrow(result.fdr)
+  result.fdr$start=as.numeric(as.vector(result.fdr$start))
+  result.fdr$end=as.numeric(as.vector(result.fdr$end))
+  result.fdr$chr=factor(result.fdr$chr)
+
+    cat("Number of DMRs identified:  ",ndmr, "\n")
+    if(region_plot){
+      cat("Drawing regional plot: region_plot.pdf ...\n")
+      sig=result.fdr
+      regplot(ref=data,sig)
+    }
+  if(mht_plot){
+    cat("Drawing manhattan plot: mht.jpg ...\n")
+    set2=NULL
+    for(i in 1:ndmr){
+        set2=c(set2,as.vector(data$probe[as.vector(data$chr)==as.vector(result.fdr$chr[i])
+           & data$start>=result.fdr$start[i] & data$start<=result.fdr$end[i]]))
+    }
+  mhtplot(probe=data$probe,chr=as.vector(data$chr),pos=data$start,p=data$p,color="gray",markprobe=set2)
+  }
+  #number of probes within eath DMR
+
+  result.fdr$nprobe=NA
+  for(i in 1:nrow(result.fdr)){
+result.fdr$nprobe[i]=nrow(data[as.vector(data$chr)==as.vector(result.fdr$chr[i])
+& data$start>=result.fdr$start[i] & data$end<=result.fdr$end[i],])
+}
+
+  write.table(result.fdr,"resu_combp.csv",row.names=FALSE,sep=",")
+  }
+}
+
+```
+
+
+## Load DNAm and pheno data
+
+```{r data,warning=FALSE,message=FALSE,eval= FALSE}
+
+load("/Users/annebozack/Box/NIEHS-R01 ONES/Methylation Data/CordBlood_ComBat_Betas_Mvlas_filteredPorbes_metalAnalysis.RData")
+
+dim(pDatcordMetal)
+# 361 164
+
+dim(ComBat.Mvalues.Metals)
+# 394460    361
+
+rownames(pDatcordMetal) = pDatcordMetal$samplename
+
+```
+
+
+## EWAS
+
+### Continuous exposure, metals detected in > 80% of samples (max 72 < LOD)
+
+### As
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# Unadjusted
+modUnadj = model.matrix(~ pDatcordMetal$As_log2)
+
+DMP_As_unadj <- run_DMP(mvals = ComBat.Mvalues.Metals, design = modUnadj)
+
+table(DMP_As_unadj$P.Value < 0.05)
+# FALSE   TRUE 
+# 383020  11440 
+
+table(DMP_As_unadj$adj.P.Val < 0.05)
+#  FALSE 
+# 394460 
+
+rm(DMP_As_unadj)
+
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, fish consumption, and cell type
+modAdj = model.matrix(~ As_log2 + female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + fish_d_f1 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)
+
+dim(modAdj)
+# 340  22
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdj = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdj)]
+ComBat.Mvalues.noMissAdj <- ComBat.Mvalues.noMissAdj[,match(rownames(modAdj), colnames(ComBat.Mvalues.noMissAdj))]
+all(rownames(modAdj)==colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+identical(rownames(modAdj),colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+
+DMP_As_Adj <- run_DMP(mvals = ComBat.Mvalues.noMissAdj, design = modAdj)
+
+table(DMP_As_Adj$P.Value < 0.05)
+# FALSE   TRUE 
+# 376859  17601    
+
+table(DMP_As_Adj$adj.P.Val < 0.05)
+# FALSE 
+# 394460 
+
+gg_qqplot(DMP_As_Adj$P.Value)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_As_adj_012621.png', type = "png", dpi = 300)
+
+volcano(DMP_As_Adj)
+quartz.save('/Users/annebozack/Documents/Cardenas/volcano_DMP_As_adj_012621.png', type = "png", dpi = 300)
+
+write.csv(DMP_As_Adj, '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/EWAS results/DMP_As_Adj_fish_012621.csv')
+
+rm(DMP_As_Adj);gc()
+
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type (NO fish consumption)
+modAdj = model.matrix(~ As_log2 + female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)
+
+dim(modAdj)
+# 361  21
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdj = ComBat.Mvalues.noMiss[,colnames(ComBat.Mvalues.noMiss) %in% rownames(modAdj)]
+ComBat.Mvalues.noMissAdj <- ComBat.Mvalues.noMissAdj[,match(rownames(modAdj), colnames(ComBat.Mvalues.noMissAdj))]
+all(rownames(modAdj)==colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+identical(rownames(modAdj),colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+
+DMP_As_Adj_noFish <- run_DMP(mvals = ComBat.Mvalues.noMissAdj, design = modAdj)
+
+table(DMP_As_Adj_noFish$P.Value < 0.05)
+# FALSE   TRUE 
+# 374930  19530  
+
+table(DMP_As_Adj_noFish$adj.P.Val < 0.05)
+# FALSE 
+# 394460 
+
+# QQ and volcano plot
+gg_qqplot(DMP_As_Adj_noFish$P.Value)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_As_adj_noFish_012621.png', type = "png", dpi = 300)
+
+volcano(DMP_As_Adj_noFish)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_As_adj_noFish_012621.png', type = "png", dpi = 300)
+
+
+# comb-p
+
+DMP_As_Adj_noFish = cbind(DMP_As_Adj_noFish, anno[,'chr'][match(rownames(DMP_As_Adj_noFish), rownames(anno))])
+DMP_As_Adj_noFish = cbind(DMP_As_Adj_noFish, anno[,'pos'][match(rownames(DMP_As_Adj_noFish), rownames(anno))])
+DMP_As_Adj_noFish$end = DMP_As_Adj_noFish[,13]
+DMP_As_Adj_noFish_p = DMP_As_Adj_noFish[,c(12,13,14,7,1)]
+colnames(DMP_As_Adj_noFish_p) = c( "chr","start", "end","p", "probe")
+DMP_As_Adj_noFish_p$chr = as.numeric(gsub("chr", "", DMP_As_Adj_noFish_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_As')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_As')
+combp_As = combp2(DMP_As_Adj_noFish_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 12	9217389	9217859	1.42E-11	470	1.42E-11	1.19E-08	9
+
+
+# manhattan plot
+region = read.csv('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_loacal/combp_As/resu_combp.csv')
+probe = DMP_As_Adj
+colnames(probe)[c(12,13)] = c('chr', 'pos')
+quartz(width = 5.5, height = 3)
+manhattan(probe, region)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_As_adj_012621.png', type = "png", dpi = 300)
+
+write.csv(DMP_As_Adj_noFish, '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/EWAS results/DMP_As_Adj_noFish_012621.csv')
+
+rm(DMP_As_Adj_noFish, DMP_As_Adj_noFish_p);gc()
+```
+
+#### No adjustment for fish consumption
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_As_adj_noFish_012621.png")
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_As_adj_noFish_012621.png")
+```
+
+```{r, out.width = '100%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_As_adj_012621.png")
+```
+
+#### As, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+pDatcordMetalF = pDatcordMetal[pDatcordMetal$female_d == 1,]
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjF = model.matrix(~ As_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalF)
+
+dim(modAdjF)
+# 169  20
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjF = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjF)]
+ComBat.Mvalues.noMissAdjF <- ComBat.Mvalues.noMissAdjF[,match(rownames(modAdjF), colnames(ComBat.Mvalues.noMissAdjF))]
+all(rownames(modAdjF)==colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+identical(rownames(modAdjF),colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+
+DMP_As_AdjF <- run_DMP(mvals = ComBat.Mvalues.noMissAdjF, design = modAdjF)
+
+table(DMP_As_AdjF$P.Value < 0.05)
+# FALSE   TRUE 
+# 377792  16668
+
+table(DMP_As_AdjF$adj.P.Val < 0.05)
+ # FALSE 
+# 394460 
+
+lambda(DMP_As_AdjF$P.Value)
+# 0.9807579
+
+# combp
+DMP_As_AdjF = cbind(DMP_As_AdjF, anno[,'chr'][match(rownames(DMP_As_AdjF), rownames(anno))])
+DMP_As_AdjF = cbind(DMP_As_AdjF, anno[,'pos'][match(rownames(DMP_As_AdjF), rownames(anno))])
+DMP_As_AdjF$end = DMP_As_AdjF[,13]
+DMP_As_AdjF_p = DMP_As_AdjF[,c(12,13,14,7,1)]
+colnames(DMP_As_AdjF_p) = c( "chr","start", "end","p", "probe")
+DMP_As_AdjF_p$chr = as.numeric(gsub("chr", "", DMP_As_AdjF_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_As_F')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_As_F')
+combp2(DMP_As_AdjF_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   2 
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 3	186490655	186490915	1.17E-09	260	2.33E-09	1.77E-06	5
+# 11	34460106	34460386	3.34E-09	280	3.34E-09	4.71E-06	7
+
+rm(DMP_As_AdjF, DMP_As_AdjF_F); gc()
+```
+
+#### As, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+pDatcordMetalM = pDatcordMetal[pDatcordMetal$female_d == 0,]
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjM = model.matrix(~ As_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalM)
+
+dim(modAdjM)
+# 192  20
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjM = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjM)]
+ComBat.Mvalues.noMissAdjM <- ComBat.Mvalues.noMissAdjM[,match(rownames(modAdjM), colnames(ComBat.Mvalues.noMissAdjM))]
+all(rownames(modAdjM)==colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+identical(rownames(modAdjM),colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+
+DMP_As_AdjM <- run_DMP(mvals = ComBat.Mvalues.noMissAdjM, design = modAdjM)
+
+table(DMP_As_AdjM$P.Value < 0.05)
+# FALSE   TRUE 
+# 376717  17743  
+
+table(DMP_As_AdjM$adj.P.Val < 0.05)
+ # FALSE 
+# 394460 
+
+lambda(DMP_As_AdjM$P.Value)
+# 1.011027
+
+# combp
+DMP_As_AdjM = cbind(DMP_As_AdjM, anno[,'chr'][match(rownames(DMP_As_AdjM), rownames(anno))])
+DMP_As_AdjM = cbind(DMP_As_AdjM, anno[,'pos'][match(rownames(DMP_As_AdjM), rownames(anno))])
+DMP_As_AdjM$end = DMP_As_AdjM[,13]
+DMP_As_AdjM_p = DMP_As_AdjM[,c(12,13,14,7,1)]
+colnames(DMP_As_AdjM_p) = c( "chr","start", "end","p", "probe")
+DMP_As_AdjM_p$chr = as.numeric(gsub("chr", "", DMP_As_AdjM_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_As_M')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_As_M')
+combp2(DMP_As_AdjM_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   6
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 12	9217389	9217859	2.96E-13	470	1.77E-12	2.48E-10	9
+# 20	3051953	3052345	5.98E-11	392	1.79E-10	6.02E-08	9
+# 11	18433499	18433683	3.59E-08	184	7.19E-08	7.70E-05	4
+# 11	2890628	2890670	1.78E-05	42	2.14E-05	0.153988702	6
+# 11	1036676	1036766	1.79E-05	90	2.14E-05	0.075303224	3
+# 6	32063990	32064032	0.006075879	42	0.006075879	1	2
+
+rm(DMP_As_AdjM, DMP_As_AdjM_p); gc()
+```
+
+	
+### Ba
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+# Unadjusted
+modUnadj = model.matrix(~ pDatcordMetal$Ba_log2)
+
+DMP_Ba_unadj <- run_DMP(mvals = ComBat.Mvalues.Metals, design = modUnadj)
+
+table(DMP_Ba_unadj$P.Value < 0.05)
+# FALSE   TRUE 
+# 373052  21408 
+
+table(DMP_Ba_unadj$adj.P.Val < 0.05)
+#  FALSE 
+# 394460 
+
+rm(DMP_Ba_unadj);gc()
+
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdj = model.matrix(~ Ba_log2 + female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)
+
+dim(modAdj)
+# 361  21
+
+# M-values for comoplete cases
+ComBat.Mvalues.noMissAdj = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdj)]
+ComBat.Mvalues.noMissAdj <- ComBat.Mvalues.noMissAdj[,match(rownames(modAdj), colnames(ComBat.Mvalues.noMissAdj))]
+all(rownames(modAdj)==colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+identical(rownames(modAdj),colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+
+DMP_Ba_Adj <- run_DMP(mvals = ComBat.Mvalues.noMissAdj, design = modAdj)
+
+table(DMP_Ba_Adj$P.Value < 0.05)
+# FALSE   TRUE 
+# 375493  18967
+
+table(DMP_Ba_Adj$adj.P.Val < 0.05)
+# FALSE 
+# 394460 
+
+# QQ and volano plots
+gg_qqplot(DMP_Ba_Adj$P.Value)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Ba_adj_012621.png', type = "png", dpi = 300)
+
+volcano(DMP_Ba_Adj)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Ba_adj_012621.png', type = "png", dpi = 300)
+
+
+# comb-p
+
+DMP_Ba_Adj = cbind(DMP_Ba_Adj, anno[,'chr'][match(rownames(DMP_Ba_Adj), rownames(anno))])
+DMP_Ba_Adj = cbind(DMP_Ba_Adj, anno[,'pos'][match(rownames(DMP_Ba_Adj), rownames(anno))])
+DMP_Ba_Adj$end = DMP_Ba_Adj[,13]
+DMP_Ba_Adj_p = DMP_Ba_Adj[,c(12,13,14,7,1)]
+colnames(DMP_Ba_Adj_p) = c( "chr","start", "end","p", "probe")
+DMP_Ba_Adj_p$chr = as.numeric(gsub("chr", "", DMP_Ba_Adj_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Ba')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Ba')
+combp2(DMP_Ba_Adj_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of identified DMR:  0
+
+
+# manhattan plot
+region = data.frame(chr = NA, start = NA, end = NA, p = NA, length = NA, fdr = NA, sidak = NA, nprobe = NA)
+probe = DMP_Ba_Adj
+colnames(probe)[c(12,13)] = c('chr', 'pos')
+quartz(width = 5.5, height = 3)
+manhattan(probe, region)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Ba_adj_012621.png', type = "png", dpi = 300)
+
+
+write.csv(DMP_Ba_Adj, '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/EWAS results/DMP_Ba_Adj_012621.csv')
+
+rm(DMP_Ba_Adj, DMP_Ba_Adj_p); gc()
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Ba_adj_012621.png")
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Ba_adj_012621.png")
+```
+
+```{r, out.width = '100%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Ba_adj_012621.png")
+```
+
+#### Ba, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjF = model.matrix(~ Ba_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalF)
+
+dim(modAdjF)
+# 169  20
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjF = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjF)]
+ComBat.Mvalues.noMissAdjF <- ComBat.Mvalues.noMissAdjF[,match(rownames(modAdjF), colnames(ComBat.Mvalues.noMissAdjF))]
+all(rownames(modAdjF)==colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+identical(rownames(modAdjF),colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+
+DMP_Ba_AdjF <- run_DMP(mvals = ComBat.Mvalues.noMissAdjF, design = modAdjF)
+
+table(DMP_Ba_AdjF$P.Value < 0.05)
+# FALSE   TRUE 
+# 381032  13428
+
+table(DMP_Ba_AdjF$adj.P.Val < 0.05)
+ # FALSE 
+# 394460 
+
+lambda(DMP_Ba_AdjF$P.Value)
+# 0.7990795
+
+# combp
+DMP_Ba_AdjF = cbind(DMP_Ba_AdjF, anno[,'chr'][match(rownames(DMP_Ba_AdjF), rownames(anno))])
+DMP_Ba_AdjF = cbind(DMP_Ba_AdjF, anno[,'pos'][match(rownames(DMP_Ba_AdjF), rownames(anno))])
+DMP_Ba_AdjF$end = DMP_Ba_AdjF[,13]
+DMP_Ba_AdjF_p = DMP_Ba_AdjF[,c(12,13,14,7,1)]
+colnames(DMP_Ba_AdjF_p) = c( "chr","start", "end","p", "probe")
+DMP_Ba_AdjF_p$chr = as.numeric(gsub("chr", "", DMP_Ba_AdjF_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Ba_F')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Ba_F')
+combp2(DMP_Ba_AdjF_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   2 
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 10	135051255	135051581	1.68E-09	326	3.36E-09	2.04E-06	7
+# 8	144635259	144635610	4.43E-09	351	4.43E-09	4.98E-06	9
+
+rm(DMP_Ba_AdjF, DMP_Ba_AdjF_p);gc()
+```
+
+#### Ba, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjM = model.matrix(~ Ba_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalM)
+
+dim(modAdjM)
+# 192  20
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjM = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjM)]
+ComBat.Mvalues.noMissAdjM <- ComBat.Mvalues.noMissAdjM[,match(rownames(modAdjM), colnames(ComBat.Mvalues.noMissAdjM))]
+all(rownames(modAdjM)==colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+identical(rownames(modAdjM),colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+
+DMP_Ba_AdjM <- run_DMP(mvals = ComBat.Mvalues.noMissAdjM, design = modAdjM)
+
+table(DMP_Ba_AdjM$P.Value < 0.05)
+# FALSE   TRUE 
+# 380178  14282
+
+table(DMP_Ba_AdjM$adj.P.Val < 0.05)
+ #  FALSE 
+# 394460
+
+lambda(DMP_Ba_AdjM$P.Value)
+# 0.865515
+
+# combp
+DMP_Ba_AdjM = cbind(DMP_Ba_AdjM, anno[,'chr'][match(rownames(DMP_Ba_AdjM), rownames(anno))])
+DMP_Ba_AdjM = cbind(DMP_Ba_AdjM, anno[,'pos'][match(rownames(DMP_Ba_AdjM), rownames(anno))])
+DMP_Ba_AdjM$end = DMP_Ba_AdjM[,13]
+DMP_Ba_AdjM_p = DMP_Ba_AdjM[,c(12,13,14,7,1)]
+colnames(DMP_Ba_AdjM_p) = c( "chr","start", "end","p", "probe")
+DMP_Ba_AdjM_p$chr = as.numeric(gsub("chr", "", DMP_Ba_AdjM_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Ba_M')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Ba_M')
+combp2(DMP_Ba_AdjM_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   2 
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 4	169239618	169240010	1.85E-11	392	3.70E-11	1.86E-08	7
+# 10	135278716	135279147	2.36E-10	431	2.36E-10	2.16E-07	5
+
+rm(DMP_Ba_AdjM, DMP_Ba_AdjM_p);gc()
+```
+
+
+### Cd
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+# Unadjusted
+modUnadj = model.matrix(~ pDatcordMetal$Cd_log2)
+
+DMP_Cd_unadj <- run_DMP(mvals = ComBat.Mvalues.Metals, design = modUnadj)
+
+table(DMP_Cd_unadj$P.Value < 0.05)
+# FALSE   TRUE 
+# 381176  13284
+
+table(DMP_Cd_unadj$adj.P.Val < 0.05)
+#  FALSE 
+# 394460 
+
+rm(DMP_Cd_unadj);gc()
+
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdj = model.matrix(~ Cd_log2 + female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)
+
+dim(modAdj)
+# 361  21
+
+# M-values for comoplete cases
+ComBat.Mvalues.noMissAdj = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdj)]
+ComBat.Mvalues.noMissAdj <- ComBat.Mvalues.noMissAdj[,match(rownames(modAdj), colnames(ComBat.Mvalues.noMissAdj))]
+all(rownames(modAdj)==colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+identical(rownames(modAdj),colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+
+DMP_Cd_Adj <- run_DMP(mvals = ComBat.Mvalues.noMissAdj, design = modAdj)
+
+table(DMP_Cd_Adj$P.Value < 0.05)
+# FALSE   TRUE 
+# 378305  16155
+
+table(DMP_Cd_Adj$adj.P.Val < 0.05)
+# FALSE 
+# 394460 
+
+# QQ and volcano plots
+gg_qqplot(DMP_Cd_Adj$P.Value)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Cd_adj_012621.png', type = "png", dpi = 300)
+
+volcano(DMP_Cd_Adj)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Cd_adj_012621.png', type = "png", dpi = 300)
+
+
+# comb-p
+
+DMP_Cd_Adj = cbind(DMP_Cd_Adj, anno[,'chr'][match(rownames(DMP_Cd_Adj), rownames(anno))])
+DMP_Cd_Adj = cbind(DMP_Cd_Adj, anno[,'pos'][match(rownames(DMP_Cd_Adj), rownames(anno))])
+DMP_Cd_Adj$end = DMP_Cd_Adj[,13]
+DMP_Cd_Adj_p = DMP_Cd_Adj[,c(12,13,14,7,1)]
+colnames(DMP_Cd_Adj_p) = c( "chr","start", "end","p", "probe")
+DMP_Cd_Adj_p$chr = as.numeric(gsub("chr", "", DMP_Cd_Adj_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cd')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cd')
+combp2(DMP_Cd_Adj_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   5 
+
+ # chr	start	end	p	length	fdr	sidak	nprobe
+# 3	156323951	156324118	1.26E-09	167	6.31E-09	2.98E-06	3
+# 13	110319561	110319607	2.72E-09	46	6.80E-09	2.33E-05	3
+# 17	46685291	46685448	8.24E-09	157	1.37E-08	2.07E-05	5
+# 2	200468625	200468832	5.80E-08	207	7.25E-08	0.000110551	3
+# 6	30039141	30039175	0.009506994	34	0.009506994	1	3
+
+
+# manhattan plot
+region = read.csv('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals/combp_Cd/resu_combp.csv')
+probe = DMP_Cd_Adj
+colnames(probe)[c(12,13)] = c('chr', 'pos')
+quartz(width = 5.5, height = 3)
+manhattan(probe, region)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Cd_adj_012621.png', type = "png", dpi = 300)
+
+write.csv(DMP_Cd_Adj, '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals/EWAS results/DMP_Cd_Adj_012621.csv')
+
+rm(DMP_Cd_Adj_p, DMP_Cd_Adj);gc()
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Cd_adj_012621.png")
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Cd_adj_012621.png")
+```
+
+```{r, out.width = '100%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Cd_adj_012621.png")
+```
+
+#### Cd, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjF = model.matrix(~ Cd_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalF)
+
+dim(modAdjF)
+# 169  20
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjF = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjF)]
+ComBat.Mvalues.noMissAdjF <- ComBat.Mvalues.noMissAdjF[,match(rownames(modAdjF), colnames(ComBat.Mvalues.noMissAdjF))]
+all(rownames(modAdjF)==colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+identical(rownames(modAdjF),colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+
+DMP_Cd_AdjF <- run_DMP(mvals = ComBat.Mvalues.noMissAdjF, design = modAdjF)
+
+table(DMP_Cd_AdjF$P.Value < 0.05)
+# FALSE   TRUE 
+# 376325  18135 
+
+table(DMP_Cd_AdjF$adj.P.Val < 0.05)
+ # FALSE 
+# 394460 
+
+lambda(DMP_Cd_AdjF$P.Value)
+# 0.9732893
+
+# combp
+DMP_Cd_AdjF = cbind(DMP_Cd_AdjF, anno[,'chr'][match(rownames(DMP_Cd_AdjF), rownames(anno))])
+DMP_Cd_AdjF = cbind(DMP_Cd_AdjF, anno[,'pos'][match(rownames(DMP_Cd_AdjF), rownames(anno))])
+DMP_Cd_AdjF$end = DMP_Cd_AdjF[,13]
+DMP_Cd_AdjF_p = DMP_Cd_AdjF[,c(12,13,14,7,1)]
+colnames(DMP_Cd_AdjF_p) = c( "chr","start", "end","p", "probe")
+DMP_Cd_AdjF_p$chr = as.numeric(gsub("chr", "", DMP_Cd_AdjF_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cd_F')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cd_F')
+combp2(DMP_Cd_AdjF_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   2 
+
+# # chr	start	end	p	length	fdr	sidak	nprobe
+# 7	27225810	27225897	2.13E-07	87	4.26E-07	0.000965598	4
+# 2	200468625	200468728	4.52E-06	103	4.52E-06	0.017166306	2
+
+rm(DMP_Cd_AdjF, DMP_Cd_AdjF_p); gc()
+```
+
+#### Cd, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjM = model.matrix(~ Cd_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalM)
+
+dim(modAdjM)
+# 192  20
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjM = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjM)]
+ComBat.Mvalues.noMissAdjM <- ComBat.Mvalues.noMissAdjM[,match(rownames(modAdjM), colnames(ComBat.Mvalues.noMissAdjM))]
+all(rownames(modAdjM)==colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+identical(rownames(modAdjM),colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+
+DMP_Cd_AdjM <- run_DMP(mvals = ComBat.Mvalues.noMissAdjM, design = modAdjM)
+
+table(DMP_Cd_AdjM$P.Value < 0.05)
+# FALSE   TRUE 
+# 378692  15768 
+
+table(DMP_Cd_AdjM$adj.P.Val < 0.05)
+ #  FALSE 
+# 394460
+
+lambda(DMP_Cd_AdjM $P.Value)
+# 0.9683207
+
+# combp
+DMP_Cd_AdjM = cbind(DMP_Cd_AdjM, anno[,'chr'][match(rownames(DMP_Cd_AdjM), rownames(anno))])
+DMP_Cd_AdjM = cbind(DMP_Cd_AdjM, anno[,'pos'][match(rownames(DMP_Cd_AdjM), rownames(anno))])
+DMP_Cd_AdjM$end = DMP_Cd_AdjM[,13]
+DMP_Cd_AdjM_p = DMP_Cd_AdjM[,c(12,13,14,7,1)]
+colnames(DMP_Cd_AdjM_p) = c( "chr","start", "end","p", "probe")
+DMP_Cd_AdjM_p$chr = as.numeric(gsub("chr", "", DMP_Cd_AdjM_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cd_M')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cd_M')
+combp2(DMP_Cd_AdjM_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of identified DMR:  1
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 19	37742738	37742956	3.02E-11	218	3.02E-11	5.46E-08	4
+
+rm(DMP_Cd_AdjM, DMP_Cd_AdjM_p); gc()
+```
+
+
+### Cr
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+# Unadjusted
+modUnadj = model.matrix(~ pDatcordMetal$Cr_log2)
+
+DMP_Cr_unadj <- run_DMP(mvals = ComBat.Mvalues.Metals, design = modUnadj)
+
+table(DMP_Cr_unadj$P.Value < 0.05)
+# FALSE   TRUE 
+# 374991  19469 
+
+table(DMP_Cr_unadj$adj.P.Val < 0.05)
+#  FALSE 
+# 394460 
+
+rm(modUnadj); gc()
+
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdj = model.matrix(~ Cr_log2 + female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)
+
+dim(modAdj)
+# 361  21
+
+# M-values for comoplete cases
+ComBat.Mvalues.noMissAdj = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdj)]
+ComBat.Mvalues.noMissAdj <- ComBat.Mvalues.noMissAdj[,match(rownames(modAdj), colnames(ComBat.Mvalues.noMissAdj))]
+all(rownames(modAdj)==colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+identical(rownames(modAdj),colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+
+DMP_Cr_Adj <- run_DMP(mvals = ComBat.Mvalues.noMissAdj, design = modAdj)
+
+table(DMP_Cr_Adj$P.Value < 0.05)
+# FALSE   TRUE 
+# 375104  19356 
+
+table(DMP_Cr_Adj$adj.P.Val < 0.05)
+# FALSE 
+# 394460 
+
+# QQ and volcano plots
+gg_qqplot(DMP_Cr_Adj$P.Value)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Cr_adj_012621.png', type = "png", dpi = 300)
+
+volcano(DMP_Cr_Adj)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Cr_adj_012621.png', type = "png", dpi = 300)
+
+
+# comb-p
+
+DMP_Cr_Adj = cbind(DMP_Cr_Adj, anno[,'chr'][match(rownames(DMP_Cr_Adj), rownames(anno))])
+DMP_Cr_Adj = cbind(DMP_Cr_Adj, anno[,'pos'][match(rownames(DMP_Cr_Adj), rownames(anno))])
+DMP_Cr_Adj$end = DMP_Cr_Adj[,13]
+DMP_Cr_Adj_p = DMP_Cr_Adj[,c(12,13,14,7,1)]
+colnames(DMP_Cr_Adj_p) = c( "chr","start", "end","p", "probe")
+DMP_Cr_Adj_p$chr = as.numeric(gsub("chr", "", DMP_Cr_Adj_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cr')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cr')
+combp2(DMP_Cr_Adj_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   5 
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 8	13373032	13373141	1.73E-09	109	4.48E-09	6.25E-06	3
+# 6	33245700	33246008	1.79E-09	308	4.48E-09	2.30E-06	13
+# 10	114713023	114713187	1.08E-08	164	1.80E-08	2.59E-05	3
+# 17	46681110	46681401	4.59E-08	291	5.74E-08	6.23E-05	6
+# 17	46641862	46642011	8.80E-05	149	8.80E-05	0.207911465	2
+
+
+# manhattan plot
+region = read.csv('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cr/resu_combp.csv')
+probe = DMP_Cr_Adj
+colnames(probe)[c(12,13)] = c('chr', 'pos')
+quartz(width = 5.5, height = 3)
+manhattan(probe, region)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Cr_adj_012621.png', type = "png", dpi = 300)
+
+
+write.csv(DMP_Cr_Adj, '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/EWAS results/DMP_Cr_Adj_012621.csv')
+
+rm(DMP_Cr_Adj_p, DMP_Cr_Adj); gc()
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Cr_adj_012621.png")
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Cr_adj_012621.png")
+```
+
+```{r, out.width = '100%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Cr_adj_012621.png")
+```
+
+#### Cr, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjF = model.matrix(~ Cr_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalF)
+
+dim(modAdjF)
+# 169  20
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjF = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjF)]
+ComBat.Mvalues.noMissAdjF <- ComBat.Mvalues.noMissAdjF[,match(rownames(modAdjF), colnames(ComBat.Mvalues.noMissAdjF))]
+all(rownames(modAdjF)==colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+identical(rownames(modAdjF),colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+
+DMP_Cr_AdjF <- run_DMP(mvals = ComBat.Mvalues.noMissAdjF, design = modAdjF)
+
+table(DMP_Cr_AdjF$P.Value < 0.05)
+# FALSE   TRUE 
+# 380815  13645  
+
+table(DMP_Cr_AdjF$adj.P.Val < 0.05)
+ # FALSE 
+# 394460 
+
+lambda(DMP_Cr_AdjF$P.Value)
+# 0.8363976
+
+# combp
+DMP_Cr_AdjF = cbind(DMP_Cr_AdjF, anno[,'chr'][match(rownames(DMP_Cr_AdjF), rownames(anno))])
+DMP_Cr_AdjF = cbind(DMP_Cr_AdjF, anno[,'pos'][match(rownames(DMP_Cr_AdjF), rownames(anno))])
+DMP_Cr_AdjF$end = DMP_Cr_AdjF[,13]
+DMP_Cr_AdjF_p = DMP_Cr_AdjF[,c(12,13,14,7,1)]
+colnames(DMP_Cr_AdjF_p) = c( "chr","start", "end","p", "probe")
+DMP_Cr_AdjF_p$chr = as.numeric(gsub("chr", "", DMP_Cr_AdjF_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cr_F')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cr_F')
+combp2(DMP_Cr_AdjF_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   2
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 8	13373032	13373141	4.00E-09	109	8.01E-09	1.45E-05	3
+# 6	31148369	31148666	9.52E-08	297	9.52E-08	0.00012639	12
+
+rm(DMP_Cr_AdjF, DMP_Cr_AdjF_p); gc()
+```
+
+#### Cr, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjM = model.matrix(~ Cr_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalM)
+
+dim(modAdjM)
+# 192  20
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjM = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjM)]
+ComBat.Mvalues.noMissAdjM <- ComBat.Mvalues.noMissAdjM[,match(rownames(modAdjM), colnames(ComBat.Mvalues.noMissAdjM))]
+all(rownames(modAdjM)==colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+identical(rownames(modAdjM),colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+DMP_Cr_AdjM <- run_DMP(mvals = ComBat.Mvalues.noMissAdjM, design = modAdjM)
+
+table(DMP_Cr_AdjM$P.Value < 0.05)
+# FALSE   TRUE 
+# 378550  15910 
+
+table(DMP_Cr_AdjM$adj.P.Val < 0.05)
+ #  FALSE 
+# 394460
+
+lambda(DMP_Cr_AdjM$P.Value)
+# 0.909677
+
+# combp
+DMP_Cr_AdjM = cbind(DMP_Cr_AdjM, anno[,'chr'][match(rownames(DMP_Cr_AdjM), rownames(anno))])
+DMP_Cr_AdjM = cbind(DMP_Cr_AdjM, anno[,'pos'][match(rownames(DMP_Cr_AdjM), rownames(anno))])
+DMP_Cr_AdjM$end = DMP_Cr_AdjM[,13]
+DMP_Cr_AdjM_p = DMP_Cr_AdjM[,c(12,13,14,7,1)]
+colnames(DMP_Cr_AdjM_p) = c( "chr","start", "end","p", "probe")
+DMP_Cr_AdjM_p$chr = as.numeric(gsub("chr", "", DMP_Cr_AdjM_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cr_M')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cr_M')
+combp2(DMP_Cr_AdjM_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of identified DMR:  0
+
+rm(DMP_Cr_AdjM, DMP_Cr_AdjM_p); gc()
+```
+
+
+### Cs
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+# Unadjusted
+modUnadj = model.matrix(~ pDatcordMetal$Cs_log2)
+
+DMP_Cs_unadj <- run_DMP(mvals = ComBat.Mvalues.Metals, design = modUnadj)
+
+table(DMP_Cs_unadj$P.Value < 0.05)
+# FALSE   TRUE 
+# 365592  28868 
+
+table(DMP_Cs_unadj$adj.P.Val < 0.05)
+#   FALSE   TRUE 
+# 394455      5 
+
+table(DMP_Cs_unadj$adj.P.Val.bonf < 0.05)
+ # FALSE   TRUE 
+# 394457      3 
+
+rm(DMP_Cs_unadj); gc()
+
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdj = model.matrix(~ Cs_log2 + female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)
+
+dim(modAdj)
+# 361  21
+
+# M-values for comoplete cases
+ComBat.Mvalues.noMissAdj = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdj)]
+ComBat.Mvalues.noMissAdj <- ComBat.Mvalues.noMissAdj[,match(rownames(modAdj), colnames(ComBat.Mvalues.noMissAdj))]
+all(rownames(modAdj)==colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+identical(rownames(modAdj),colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+
+DMP_Cs_Adj <- run_DMP(mvals = ComBat.Mvalues.noMissAdj, design = modAdj)
+
+table(DMP_Cs_Adj$P.Value < 0.05)
+# FALSE   TRUE 
+# 375221  19239
+
+table(DMP_Cs_Adj$adj.P.Val < 0.05)
+# FALSE 
+# 394460 
+
+# QQ and volcano plots
+gg_qqplot(DMP_Cs_Adj$P.Value)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Cs_adj_012621.png', type = "png", dpi = 300)
+
+volcano(DMP_Cs_Adj)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Cs_adj_012621.png', type = "png", dpi = 300)
+
+
+# comb-p
+
+DMP_Cs_Adj = cbind(DMP_Cs_Adj, anno[,'chr'][match(rownames(DMP_Cs_Adj), rownames(anno))])
+DMP_Cs_Adj = cbind(DMP_Cs_Adj, anno[,'pos'][match(rownames(DMP_Cs_Adj), rownames(anno))])
+DMP_Cs_Adj$end = DMP_Cs_Adj[,13]
+DMP_Cs_Adj_p = DMP_Cs_Adj[,c(12,13,14,7,1)]
+colnames(DMP_Cs_Adj_p) = c( "chr","start", "end","p", "probe")
+DMP_Cs_Adj_p$chr = as.numeric(gsub("chr", "", DMP_Cs_Adj_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cs')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cs')
+combp2(DMP_Cs_Adj_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   18
+
+# # chr	start	end	p	length	fdr	sidak	nprobe
+# 4	174421376	174422626	1.45E-19	1250	2.61E-18	0	7
+# 6	33280051	33280478	3.47E-15	427	3.13E-14	3.18E-12	14
+# 6	28601268	28601519	9.15E-11	251	5.49E-10	1.44E-07	11
+# 6	32847440	32847845	3.05E-10	405	1.15E-09	2.97E-07	17
+# 6	30881315	30881842	3.19E-10	527	1.15E-09	2.39E-07	21
+# 17	17603530	17603837	6.14E-10	307	1.84E-09	7.89E-07	4
+# 20	57427411	57427762	1.45E-09	351	3.72E-09	1.62E-06	15
+# 1	75590911	75591029	4.99E-09	118	1.12E-08	1.67E-05	3
+# 12	44152508	44152940	9.98E-09	432	2.00E-08	9.11E-06	11
+# 12	1025528	1025755	5.17E-08	227	8.64E-08	8.98E-05	3
+# 12	54763210	54763433	5.28E-08	223	8.64E-08	9.34E-05	3
+# 19	10736005	10736117	5.98E-08	112	8.98E-08	0.000210735	5
+# 3	141087186	141087363	7.45E-08	177	1.03E-07	0.000166107	5
+# 8	43131259	43131656	8.56E-08	397	1.04E-07	8.51E-05	5
+# 15	69325270	69325560	8.65E-08	290	1.04E-07	0.000117711	5
+# 5	78985424	78985592	1.51E-07	168	1.70E-07	0.000355274	9
+# 17	46388389	46388465	2.50E-07	76	2.64E-07	0.001294215	3
+# 6	31651019	31651029	0.00617781	10	0.00617781	1	2
+
+
+# manhattan plot
+region = read.csv('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cs/resu_combp.csv')
+probe = DMP_Cs_Adj
+colnames(probe)[c(12,13)] = c('chr', 'pos')
+quartz(width = 5.5, height = 3)
+manhattan(probe, region)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Cs_adj_012621.png', type = "png", dpi = 300)
+
+
+write.csv(DMP_Cs_Adj, '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/EWAS results/DMP_Cs_Adj_012621.csv')
+
+rm(DMP_Cs_Adj_p, DMP_Cs_Adj);gc()
+```
+
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Cs_adj_012621.png")
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Cs_adj_012621.png")
+```
+
+```{r, out.width = '100%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Cs_adj_012621.png")
+```
+
+#### Cs, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjF = model.matrix(~ Cs_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalF)
+
+dim(modAdjF)
+# 169  20
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjF = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjF)]
+ComBat.Mvalues.noMissAdjF <- ComBat.Mvalues.noMissAdjF[,match(rownames(modAdjF), colnames(ComBat.Mvalues.noMissAdjF))]
+all(rownames(modAdjF)==colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+identical(rownames(modAdjF),colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+
+DMP_Cs_AdjF <- run_DMP(mvals = ComBat.Mvalues.noMissAdjF, design = modAdjF)
+
+table(DMP_Cs_AdjF$P.Value < 0.05)
+# FALSE   TRUE 
+# 383383  11077 
+
+table(DMP_Cs_AdjF$adj.P.Val < 0.05)
+ # FALSE 
+# 394460 
+
+lambda(DMP_Cs_AdjF$P.Value)
+# 0.7878935
+
+# combp
+DMP_Cs_AdjF = cbind(DMP_Cs_AdjF, anno[,'chr'][match(rownames(DMP_Cs_AdjF), rownames(anno))])
+DMP_Cs_AdjF = cbind(DMP_Cs_AdjF, anno[,'pos'][match(rownames(DMP_Cs_AdjF), rownames(anno))])
+DMP_Cs_AdjF$end = DMP_Cs_AdjF[,13]
+DMP_Cs_AdjF_p = DMP_Cs_AdjF[,c(12,13,14,7,1)]
+colnames(DMP_Cs_AdjF_p) = c( "chr","start", "end","p", "probe")
+DMP_Cs_AdjF_p$chr = as.numeric(gsub("chr", "", DMP_Cs_AdjF_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cs_F')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cs_F')
+combp2(DMP_Cs_AdjF_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   4 
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 12	44152508	44152940	4.54E-12	432	1.82E-11	4.15E-09	11
+# 6	117923794	117924070	1.54E-08	276	3.07E-08	2.20E-05	8
+# 1	26233331	26233623	3.78E-08	292	5.04E-08	5.11E-05	10
+# 6	32847761	32847830	1.61E-05	69	1.61E-05	0.087965388	5
+
+rm(DMP_Cs_AdjF, DMP_Cs_AdjF_p);gc()
+```
+
+#### Cs, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjM = model.matrix(~ Cs_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalM)
+
+dim(modAdjM)
+# 192  20
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjM = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjM)]
+ComBat.Mvalues.noMissAdjM <- ComBat.Mvalues.noMissAdjM[,match(rownames(modAdjM), colnames(ComBat.Mvalues.noMissAdjM))]
+all(rownames(modAdjM)==colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+identical(rownames(modAdjM),colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+
+DMP_Cs_AdjM <- run_DMP(mvals = ComBat.Mvalues.noMissAdjM, design = modAdjM)
+
+table(DMP_Cs_AdjM$P.Value < 0.05)
+# FALSE   TRUE 
+# 373385  21075
+
+table(DMP_Cs_AdjM$adj.P.Val < 0.05)
+ #  FALSE 
+# 394460
+
+lambda(DMP_Cs_AdjM$P.Value)
+# 1.092447
+
+# combp
+DMP_Cs_AdjM = cbind(DMP_Cs_AdjM, anno[,'chr'][match(rownames(DMP_Cs_AdjM), rownames(anno))])
+DMP_Cs_AdjM = cbind(DMP_Cs_AdjM, anno[,'pos'][match(rownames(DMP_Cs_AdjM), rownames(anno))])
+DMP_Cs_AdjM$end = DMP_Cs_AdjM[,13]
+DMP_Cs_AdjM_p = DMP_Cs_AdjM[,c(12,13,14,7,1)]
+colnames(DMP_Cs_AdjM_p) = c( "chr","start", "end","p", "probe")
+DMP_Cs_AdjM_p$chr = as.numeric(gsub("chr", "", DMP_Cs_AdjM_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cs_M')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cs_M')
+combp2(DMP_Cs_AdjM_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   14
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 6	31650734	31651362	1.30E-20	628	1.82E-19	0	21
+# 8	43131259	43132507	1.79E-19	1248	1.25E-18	0	8
+# 15	69325270	69325560	8.27E-13	290	3.86E-12	1.12E-09	5
+# 17	17603530	17604146	1.02E-11	616	3.55E-11	6.50E-09	5
+# 12	108634146	108634275	5.51E-10	129	1.54E-09	1.68E-06	3
+# 6	28601268	28601519	1.56E-09	251	3.64E-09	2.45E-06	11
+# 3	141087186	141087363	4.38E-09	177	8.77E-09	9.77E-06	5
+# 10	134150488	134150760	3.13E-08	272	5.48E-08	4.54E-05	7
+# 6	30881463	30881766	8.17E-08	303	1.27E-07	0.000106304	15
+# 19	51774376	51774666	9.96E-08	290	1.39E-07	0.000135517	4
+# 14	21148813	21148957	1.11E-07	144	1.41E-07	0.000304378	2
+# 6	28446839	28447115	1.44E-07	276	1.68E-07	0.000205694	4
+# 4	187422004	187422119	1.79E-07	115	1.93E-07	0.000614168	5
+# 13	23309929	23310203	3.63E-07	274	3.63E-07	0.00052233	3
+
+rm(DMP_Cs_AdjM_p, DMP_Cs_AdjM);gc()
+
+```
+
+
+### Cu
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+# Unadjusted
+modUnadj = model.matrix(~ pDatcordMetal$Cu_log2)
+
+DMP_Cu_unadj <- run_DMP(mvals = ComBat.Mvalues.Metals, design = modUnadj)
+
+table(DMP_Cu_unadj$P.Value < 0.05)
+# FALSE   TRUE 
+# 362630  31830 
+
+table(DMP_Cu_unadj$adj.P.Val < 0.05)
+#   FALSE 
+# 394460 
+
+rm(DMP_Cu_unadj);gc()
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdj = model.matrix(~ Cu_log2 + female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + pDatcordMetal$smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)
+
+dim(modAdj)
+# 361  21
+
+# M-values for comoplete cases
+ComBat.Mvalues.noMissAdj = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdj)]
+ComBat.Mvalues.noMissAdj <- ComBat.Mvalues.noMissAdj[,match(rownames(modAdj), colnames(ComBat.Mvalues.noMissAdj))]
+all(rownames(modAdj)==colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+identical(rownames(modAdj),colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+
+DMP_Cu_Adj <- run_DMP(mvals = ComBat.Mvalues.noMissAdj, design = modAdj)
+
+table(DMP_Cu_Adj$P.Value < 0.05)
+# FALSE   TRUE 
+# 337112  57348 
+
+table(DMP_Cu_Adj$adj.P.Val < 0.05)
+# FALSE 
+# 394460 
+
+# QQ and volcano plots
+gg_qqplot(DMP_Cu_Adj$P.Value)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Cu_adj_012621.png', type = "png", dpi = 300)
+
+volcano(DMP_Cu_Adj)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Cu_adj_012621.png', type = "png", dpi = 300)
+
+
+# comb-p
+
+DMP_Cu_Adj = cbind(DMP_Cu_Adj, anno[,'chr'][match(rownames(DMP_Cu_Adj), rownames(anno))])
+DMP_Cu_Adj = cbind(DMP_Cu_Adj, anno[,'pos'][match(rownames(DMP_Cu_Adj), rownames(anno))])
+DMP_Cu_Adj$end = DMP_Cu_Adj[,13]
+DMP_Cu_Adj_p = DMP_Cu_Adj[,c(12,13,14,7,1)]
+colnames(DMP_Cu_Adj_p) = c( "chr","start", "end","p", "probe")
+DMP_Cu_Adj_p$chr = as.numeric(gsub("chr", "", DMP_Cu_Adj_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cu')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cu')
+combp2(DMP_Cu_Adj_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   4 
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 20	57427425	57427942	3.63E-11	517	1.45E-10	2.77E-08	17
+# 12	54673866	54674009	1.54E-07	143	3.08E-07	0.000425021	4
+# 2	74682138	74682200	7.94E-07	62	1.06E-06	0.005039303	4
+# 12	54582658	54582673	2.26E-06	15	2.26E-06	0.057710178	2
+
+
+# manhattan plot
+region = read.csv('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cu/resu_combp.csv')
+probe = DMP_Cu_Adj
+colnames(probe)[c(12,13)] = c('chr', 'pos')
+quartz(width = 5.5, height = 3)
+manhattan(probe, region)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Cu_adj_012621.png', type = "png", dpi = 300)
+
+write.csv(DMP_Cu_Adj, '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/EWAS results/DMP_Cu_Adj_012621.csv')
+
+rm(DMP_Cu_Adj_p, DMP_Cu_Adj); gc()
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Cu_adj_012621.png")
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Cu_adj_012621.png")
+```
+
+```{r, out.width = '100%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Cu_adj_012621.png")
+```
+
+#### Cu, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjF = model.matrix(~ Cu_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalF)
+
+dim(modAdjF)
+# 169  20
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjF = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjF)]
+ComBat.Mvalues.noMissAdjF <- ComBat.Mvalues.noMissAdjF[,match(rownames(modAdjF), colnames(ComBat.Mvalues.noMissAdjF))]
+all(rownames(modAdjF)==colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+identical(rownames(modAdjF),colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+
+DMP_Cu_AdjF <- run_DMP(mvals = ComBat.Mvalues.noMissAdjF, design = modAdjF)
+
+table(DMP_Cu_AdjF$P.Value < 0.05)
+# FALSE   TRUE 
+# 377323  17137 
+
+table(DMP_Cu_AdjF$adj.P.Val < 0.05)
+ # FALSE 
+# 394460 
+
+lambda(DMP_Cu_AdjF$P.Value)
+# 1.061581
+
+# combp
+DMP_Cu_AdjF = cbind(DMP_Cu_AdjF, anno[,'chr'][match(rownames(DMP_Cu_AdjF), rownames(anno))])
+DMP_Cu_AdjF = cbind(DMP_Cu_AdjF, anno[,'pos'][match(rownames(DMP_Cu_AdjF), rownames(anno))])
+DMP_Cu_AdjF$end = DMP_Cu_AdjF[,13]
+DMP_Cu_AdjF_p = DMP_Cu_AdjF[,c(12,13,14,7,1)]
+colnames(DMP_Cu_AdjF_p) = c( "chr","start", "end","p", "probe")
+DMP_Cu_AdjF_p$chr = as.numeric(gsub("chr", "", DMP_Cu_AdjF_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cu_F')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cu_F')
+combp2(DMP_Cu_AdjF_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   3
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 20	57427442	57427830	1.63E-09	388	4.89E-09	1.66E-06	15
+# 7	1250087	1250182	5.76E-05	95	8.64E-05	0.212614648	3
+# 11	368637	368712	0.0067564	75	0.0067564	1	3
+
+rm(DMP_Cu_AdjF_p, DMP_Cu_AdjF);gc()
+```
+
+#### Cu, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjM = model.matrix(~ Cu_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalM)
+
+dim(modAdjM)
+# 192  20
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjM = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjM)]
+ComBat.Mvalues.noMissAdjM <- ComBat.Mvalues.noMissAdjM[,match(rownames(modAdjM), colnames(ComBat.Mvalues.noMissAdjM))]
+all(rownames(modAdjM)==colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+identical(rownames(modAdjM),colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+
+DMP_Cu_AdjM <- run_DMP(mvals = ComBat.Mvalues.noMissAdjM, design = modAdjM)
+
+table(DMP_Cu_AdjM$P.Value < 0.05)
+# FALSE   TRUE 
+# 337296  57164
+
+table(DMP_Cu_AdjM$adj.P.Val < 0.05)
+ #  FALSE 
+# 394460
+
+lambda(DMP_Cu_AdjM$P.Value)
+# 1.911863
+
+# combp
+DMP_Cu_AdjM = cbind(DMP_Cu_AdjM, anno[,'chr'][match(rownames(DMP_Cu_AdjM), rownames(anno))])
+DMP_Cu_AdjM = cbind(DMP_Cu_AdjM, anno[,'pos'][match(rownames(DMP_Cu_AdjM), rownames(anno))])
+DMP_Cu_AdjM$end = DMP_Cu_AdjM[,13]
+DMP_Cu_AdjM_p = DMP_Cu_AdjM[,c(12,13,14,7,1)]
+colnames(DMP_Cu_AdjM_p) = c( "chr","start", "end","p", "probe")
+DMP_Cu_AdjM_p$chr = as.numeric(gsub("chr", "", DMP_Cu_AdjM_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cu_M')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Cu_M')
+combp2(DMP_Cu_AdjM_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   6
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 5	83016999	83017184	3.68E-11	185	2.21E-10	7.84E-08	4
+# 3	46759437	46759698	1.39E-09	261	4.18E-09	2.10E-06	7
+# 1	108023248	108023482	6.02E-08	234	1.20E-07	0.00010145	5
+# 12	54673866	54674009	3.57E-06	143	5.35E-06	0.009787311	4
+# 6	32847761	32847830	6.43E-05	69	7.72E-05	0.307677188	5
+# 7	94953876	94953956	0.004986235	80	0.004986235	1	2
+
+rm(DMP_Cu_AdjM_p, DMP_Cu_AdjM);gc()
+
+```
+
+
+### Hg
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+pDatcordMetal_Hg = pDatcordMetal[!is.na(pDatcordMetal$Hg_log2),]
+rownames(pDatcordMetal_Hg) = pDatcordMetal_Hg$samplename
+dim(pDatcordMetal_Hg)
+# 358 164
+
+# Unadjusted
+modUnadj = model.matrix(~ Hg_log2, data = pDatcordMetal_Hg)
+
+# M-values for comoplete cases
+ComBat.Mvalues.Hg = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modUnadj)]
+ComBat.Mvalues.Hg <- ComBat.Mvalues.Hg[,match(rownames(modUnadj), colnames(ComBat.Mvalues.Hg))]
+all(rownames(modUnadj)==colnames(ComBat.Mvalues.Hg))
+# TRUE 
+identical(rownames(modUnadj),colnames(ComBat.Mvalues.Hg))
+# TRUE 
+
+DMP_Hg_unadj <- run_DMP(mvals = ComBat.Mvalues.Hg, design = modUnadj)
+
+table(DMP_Hg_unadj$P.Value < 0.05)
+# FALSE   TRUE 
+# 356341  38119 
+
+table(DMP_Hg_unadj$adj.P.Val < 0.05)
+#  FALSE 
+# 394460 
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, fish consumption, and cell type
+modAdj = model.matrix(~ Hg_log2 + female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + fish_d_f1 + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_Hg)
+
+dim(modAdj)
+# 337  22
+
+# M-values for comoplete cases
+ComBat.Mvalues.Hg.adj = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdj)]
+ComBat.Mvalues.Hg.adj <- ComBat.Mvalues.Hg.adj[,(match(rownames(modAdj), colnames(ComBat.Mvalues.Hg.adj)))]
+all(rownames(modAdj)==colnames(ComBat.Mvalues.Hg.adj))
+# TRUE 
+identical(rownames(modAdj),colnames(ComBat.Mvalues.Hg.adj))
+# TRUE 
+
+DMP_Hg_Adj <- run_DMP(mvals = ComBat.Mvalues.Hg.adj, design = modAdj)
+
+table(DMP_Hg_Adj$P.Value < 0.05)
+# FALSE   TRUE 
+# 381964  12496 
+
+table(DMP_Hg_Adj$adj.P.Val < 0.05)
+# FALSE 
+# 394460 
+
+gg_qqplot(DMP_Hg_Adj$P.Value)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Hg_adj_fish_012621.png', type = "png", dpi = 300)
+
+volcano(DMP_Hg_Adj)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Hg_adj_fish_012621.png', type = "png", dpi = 300)
+
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type (NO fish consumption)
+modAdj = model.matrix(~ Hg_log2 + female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_Hg)
+
+dim(modAdj)
+# 358  21
+
+# M-values for complete cases
+ComBat.Mvalues.Hg.adj = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdj)]
+ComBat.Mvalues.Hg.adj <- ComBat.Mvalues.Hg.adj[,match(rownames(modAdj), colnames(ComBat.Mvalues.Hg.adj))]
+all(rownames(modAdj)==colnames(ComBat.Mvalues.Hg.adj))
+# TRUE 
+identical(rownames(modAdj),colnames(ComBat.Mvalues.Hg.adj))
+# TRUE 
+
+DMP_Hg_Adj_noFish <- run_DMP(mvals = ComBat.Mvalues.Hg.adj, design = modAdj)
+
+table(DMP_Hg_Adj_noFish$P.Value < 0.05)
+# FALSE   TRUE 
+# 380998  13462
+
+table(DMP_Hg_Adj_noFish$adj.P.Val < 0.05)
+#   FALSE 
+#  394460 
+
+# QQ and volcano plots
+gg_qqplot(DMP_Hg_Adj_noFish$P.Value)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Hg_adj_noFish_012621.png', type = "png", dpi = 300)
+
+volcano(DMP_Hg_Adj_noFish)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Hg_adj_noFish_012621.png', type = "png", dpi = 300)
+
+
+# combp
+DMP_Hg_Adj_noFish = cbind(DMP_Hg_Adj_noFish, anno[,'chr'][match(rownames(DMP_Hg_Adj_noFish), rownames(anno))])
+DMP_Hg_Adj_noFish = cbind(DMP_Hg_Adj_noFish, anno[,'pos'][match(rownames(DMP_Hg_Adj_noFish), rownames(anno))])
+DMP_Hg_Adj_noFish$end = DMP_Hg_Adj_noFish[,13]
+DMP_Hg_Adj_noFish_p = DMP_Hg_Adj_noFish[,c(12,13,14,7,1)]
+colnames(DMP_Hg_Adj_noFish_p) = c( "chr","start", "end","p", "probe")
+DMP_Hg_Adj_noFish_p$chr = as.numeric(gsub("chr", "", DMP_Hg_Adj_noFish_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Hg')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Hg')
+combp2(DMP_Hg_Adj_noFish_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   6 
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 8	143859668	143859990	3.26E-15	322	6.53E-15	3.94E-12	7
+# 6	30039373	30039548	8.82E-09	175	8.82E-09	1.99E-05	12
+
+
+# manhattan plot
+region = read.csv('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Hg/resu_combp.csv')
+probe = DMP_Hg_Adj_noFish
+colnames(probe)[c(12,13)] = c('chr', 'pos')
+quartz(width = 5.5, height = 3)
+manhattan(probe, region)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Hg_adj_012621.png', type = "png", dpi = 300)
+
+write.csv(DMP_Hg_Adj_noFish, '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/EWAS results/DMP_Hg_Adj_noFish_012621.csv')
+
+rm(DMP_Hg_Adj_noFish_p, DMP_Hg_Adj_noFish);gc()
+```
+
+
+##### Not adjusting for fish consumption
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Hg_adj_noFish_012621.png")
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Hg_adj_noFish_012621.png")
+```
+
+```{r, out.width = '100%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Hg_adj_012621.png")
+```
+
+#### Hg, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+pDatcordMetalF_Hg = pDatcordMetal_Hg[pDatcordMetal_Hg$female_d == 1,]
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjF = model.matrix(~ Hg_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalF_Hg)
+
+dim(modAdjF)
+# 167  20
+
+# M-values for complete cases
+ComBat.Mvalues.HgF = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjF)]
+ComBat.Mvalues.HgF <- ComBat.Mvalues.HgF[,match(rownames(modAdjF), colnames(ComBat.Mvalues.HgF))]
+all(rownames(modAdjF)==colnames(ComBat.Mvalues.HgF))
+# TRUE 
+identical(rownames(modAdjF),colnames(ComBat.Mvalues.HgF))
+# TRUE 
+
+DMP_Hg_AdjF <- run_DMP(mvals = ComBat.Mvalues.HgF, design = modAdjF)
+
+table(DMP_Hg_AdjF$P.Value < 0.05)
+# FALSE   TRUE 
+# 384162  10298 
+
+table(DMP_Hg_AdjF$adj.P.Val < 0.05)
+ # FALSE 
+# 394460 
+
+lambda(DMP_Hg_AdjF$P.Value)
+# 0.7271097
+
+# combp
+DMP_Hg_AdjF = cbind(DMP_Hg_AdjF, anno[,'chr'][match(rownames(DMP_Hg_AdjF), rownames(anno))])
+DMP_Hg_AdjF = cbind(DMP_Hg_AdjF, anno[,'pos'][match(rownames(DMP_Hg_AdjF), rownames(anno))])
+DMP_Hg_AdjF$end = DMP_Hg_AdjF[,13]
+DMP_Hg_AdjF_p = DMP_Hg_AdjF[,c(12,13,14,7,1)]
+colnames(DMP_Hg_AdjF_p) = c( "chr","start", "end","p", "probe")
+DMP_Hg_AdjF_p$chr = as.numeric(gsub("chr", "", DMP_Hg_AdjF_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Hg_F')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Hg_F')
+combp2(DMP_Hg_AdjF_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   1
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 6	31508105	31508137	3.95E-05	32	3.95E-05	0.385543545	3
+
+rm(DMP_Hg_AdjF_p, DMP_Hg_AdjF);gc()
+
+```
+
+#### Hg, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+pDatcordMetalM_Hg = pDatcordMetal_Hg[pDatcordMetal_Hg$female_d == 0,]
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjM = model.matrix(~ Hg_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalM_Hg)
+
+dim(modAdjM)
+# 191  20
+
+# M-values for complete cases
+ComBat.Mvalues.HgM = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjM)]
+ComBat.Mvalues.HgM <- ComBat.Mvalues.HgM[,match(rownames(modAdjM), colnames(ComBat.Mvalues.HgM))]
+all(rownames(modAdjM)==colnames(ComBat.Mvalues.HgM))
+# TRUE 
+identical(rownames(modAdjM),colnames(ComBat.Mvalues.HgM))
+# TRUE 
+
+DMP_Hg_AdjM <- run_DMP(mvals = ComBat.Mvalues.HgM, design = modAdjM)
+
+table(DMP_Hg_AdjM$P.Value < 0.05)
+# FALSE   TRUE 
+# 384162  12873 
+
+table(DMP_Hg_AdjM$adj.P.Val < 0.05)
+ # FALSE 
+# 394460 
+
+lambda(DMP_Hg_AdjM$P.Value)
+# 0.8093155
+
+# combp
+DMP_Hg_AdjM = cbind(DMP_Hg_AdjM, anno[,'chr'][match(rownames(DMP_Hg_AdjM), rownames(anno))])
+DMP_Hg_AdjM = cbind(DMP_Hg_AdjM, anno[,'pos'][match(rownames(DMP_Hg_AdjM), rownames(anno))])
+DMP_Hg_AdjM$end = DMP_Hg_AdjM[,13]
+DMP_Hg_AdjM_p = DMP_Hg_AdjM[,c(12,13,14,7,1)]
+colnames(DMP_Hg_AdjM_p) = c( "chr","start", "end","p", "probe")
+DMP_Hg_AdjM_p$chr = as.numeric(gsub("chr", "", DMP_Hg_AdjM_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Hg_M')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Hg_M')
+combp2(DMP_Hg_AdjM_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   3
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 8	143859668	143859990	1.32E-12	322	3.96E-12	1.62E-09	7
+# 6	31650785	31651362	2.49E-10	577	3.73E-10	1.70E-07	19
+# 6	30039141	30039548	4.26E-10	407	4.26E-10	4.13E-07	15
+
+rm(DMP_Hg_AdjM_p, DMP_Hg_AdjM);gc()
+
+```
+
+
+### Mg
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+# Unadjusted
+modUnadj = model.matrix(~ pDatcordMetal$Mg_log2)
+
+DMP_Mg_unadj <- run_DMP(mvals = ComBat.Mvalues.Metals, design = modUnadj)
+
+table(DMP_Mg_unadj$P.Value < 0.05)
+# FALSE   TRUE 
+# 373632  20828 
+
+table(DMP_Mg_unadj$adj.P.Val < 0.05)
+#   FALSE 
+# 394460 
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdj = model.matrix(~ Mg_log2 + female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + pDatcordMetal$smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)
+
+dim(modAdj)
+# 361  25
+
+# M-values for comoplete cases
+ComBat.Mvalues.noMissAdj = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdj)]
+ComBat.Mvalues.noMissAdj <- ComBat.Mvalues.noMissAdj[,match(rownames(modAdj), colnames(ComBat.Mvalues.noMissAdj))]
+all(rownames(modAdj)==colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+identical(rownames(modAdj),colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+
+DMP_Mg_Adj <- run_DMP(mvals = ComBat.Mvalues.noMissAdj, design = modAdj)
+
+table(DMP_Mg_Adj$P.Value < 0.05)
+# FALSE   TRUE 
+# 374584  19876 
+
+table(DMP_Mg_Adj$adj.P.Val < 0.05)
+ # FALSE 
+# 394460
+
+# QQ and volcano plots
+gg_qqplot(DMP_Mg_Adj$P.Value)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Mg_adj_012621.png', type = "png", dpi = 300)
+
+volcano(DMP_Mg_Adj)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Mg_adj_012621.png', type = "png", dpi = 300)
+
+
+# combp
+
+DMP_Mg_Adj = cbind(DMP_Mg_Adj, anno[,'chr'][match(rownames(DMP_Mg_Adj), rownames(anno))])
+DMP_Mg_Adj = cbind(DMP_Mg_Adj, anno[,'pos'][match(rownames(DMP_Mg_Adj), rownames(anno))])
+DMP_Mg_Adj$end = DMP_Mg_Adj[,13]
+DMP_Mg_Adj_p = DMP_Mg_Adj[,c(12,13,14,7,1)]
+colnames(DMP_Mg_Adj_p) = c( "chr","start", "end","p", "probe")
+DMP_Mg_Adj_p$chr = as.numeric(gsub("chr", "", DMP_Mg_Adj_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Mg')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Mg')
+combp2(DMP_Mg_Adj_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   5 
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 20	57427169	57427973	4.04E-18	804	2.02E-17	0	24
+# 6	30039174	30039548	2.50E-11	374	6.25E-11	2.64E-08	13
+# 6	32063990	32064258	3.13E-08	268	5.22E-08	4.61E-05	12
+# 1	2980037	2980163	2.49E-06	126	3.11E-06	0.007760292	2
+# 11	368564	368712	6.63E-06	148	6.63E-06	0.01752339	7
+
+
+# manhattan plot
+region = read.csv('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Mg/resu_combp.csv')
+probe = DMP_Mg_Adj
+colnames(probe)[c(12,13)] = c('chr', 'pos')
+quartz(width = 5.5, height = 3)
+manhattan(probe, region)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Mg_adj_012621.png', type = "png", dpi = 300)
+
+write.csv(DMP_Mg_Adj, '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/EWAS results/DMP_Mg_Adj_012621.csv')
+
+rm(DMP_Mg_Adj_p, DMP_Mg_Adj);gc()
+
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Mg_adj_012621.png")
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Mg_adj_012621.png")
+```
+
+```{r, out.width = '100%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Mg_adj_012621.png")
+```
+
+#### Mg, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjF = model.matrix(~ Mg_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalF)
+
+dim(modAdjF)
+# 169  23
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjF = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjF)]
+ComBat.Mvalues.noMissAdjF <- ComBat.Mvalues.noMissAdjF[,match(rownames(modAdjF), colnames(ComBat.Mvalues.noMissAdjF))]
+all(rownames(modAdjF)==colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+identical(rownames(modAdjF),colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+
+DMP_Mg_AdjF <- run_DMP(mvals = ComBat.Mvalues.noMissAdjF, design = modAdjF)
+
+table(DMP_Mg_AdjF$P.Value < 0.05)
+# FALSE   TRUE 
+# 379455  15005
+
+table(DMP_Mg_AdjF$adj.P.Val < 0.05)
+ # FALSE 
+# 394460 
+
+lambda(DMP_Mg_AdjF$P.Value)
+# 0.860424
+
+# combp
+DMP_Mg_AdjF = cbind(DMP_Mg_AdjF, anno[,'chr'][match(rownames(DMP_Mg_AdjF), rownames(anno))])
+DMP_Mg_AdjF = cbind(DMP_Mg_AdjF, anno[,'pos'][match(rownames(DMP_Mg_AdjF), rownames(anno))])
+DMP_Mg_AdjF$end = DMP_Mg_AdjF[,13]
+DMP_Mg_AdjF_p = DMP_Mg_AdjF[,c(12,13,14,7,1)]
+colnames(DMP_Mg_AdjF_p) = c( "chr","start", "end","p", "probe")
+DMP_Mg_AdjF_p$chr = as.numeric(gsub("chr", "", DMP_Mg_AdjF_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Mg_F')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Mg_F')
+combp2(DMP_Mg_AdjF_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   5
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 17	48912264	48912621	3.10E-11	357	1.55E-10	3.42E-08	9
+# 20	57427442	57427762	2.42E-08	320	6.05E-08	2.98E-05	13
+# 2	121223739	121224009	7.93E-08	270	1.32E-07	0.000115845	6
+# 14	105944941	105945022	1.58E-06	81	1.97E-06	0.007640821	2
+# 19	45976119	45976195	4.01E-05	76	4.01E-05	0.187991697	2
+
+rm(DMP_Mg_AdjF_p, DMP_Mg_AdjF);gc()
+```
+
+#### Mg, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjM = model.matrix(~ Mg_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalM)
+
+dim(modAdjM)
+# 192  23
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjM = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjM)]
+ComBat.Mvalues.noMissAdjM <- ComBat.Mvalues.noMissAdjM[,match(rownames(modAdjM), colnames(ComBat.Mvalues.noMissAdjM))]
+all(rownames(modAdjM)==colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+identical(rownames(modAdjM),colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+
+DMP_Mg_AdjM <- run_DMP(mvals = ComBat.Mvalues.noMissAdjM, design = modAdjM)
+
+table(DMP_Mg_AdjM$P.Value < 0.05)
+# FALSE   TRUE 
+# 354014  40446 
+
+table(DMP_Mg_AdjM$adj.P.Val < 0.05)
+ #  FALSE 
+# 394460
+
+lambda(DMP_Mg_AdjM$P.Value)
+# 1.605054
+
+# combp
+DMP_Mg_AdjM = cbind(DMP_Mg_AdjM, anno[,'chr'][match(rownames(DMP_Mg_AdjM), rownames(anno))])
+DMP_Mg_AdjM = cbind(DMP_Mg_AdjM, anno[,'pos'][match(rownames(DMP_Mg_AdjM), rownames(anno))])
+DMP_Mg_AdjM$end = DMP_Mg_AdjM[,13]
+DMP_Mg_AdjM_p = DMP_Mg_AdjM[,c(12,13,14,7,1)]
+colnames(DMP_Mg_AdjM_p) = c( "chr","start", "end","p", "probe")
+DMP_Mg_AdjM_p$chr = as.numeric(gsub("chr", "", DMP_Mg_AdjM_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Mg_M')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Mg_M')
+combp2(DMP_Mg_AdjM_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   2
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 19	57742111	57742423	3.59E-11	312	7.18E-11	4.54E-08	7
+# 22	22901829	22901880	0.000877941	51	0.000877941	0.998878875	3
+
+rm(DMP_Mg_AdjM_p, DMP_Mg_AdjM);gc()
+```
+
+
+### Mn
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+# Unadjusted
+modUnadj = model.matrix(~ pDatcordMetal$Mn_log2)
+
+DMP_Mn_unadj <- run_DMP(mvals = ComBat.Mvalues.Metals, design = modUnadj)
+
+table(DMP_Mn_unadj$P.Value < 0.05)
+# FALSE   TRUE 
+# 384728   9732 
+
+table(DMP_Mn_unadj$adj.P.Val < 0.05)
+#   FALSE   TRUE 
+# 394459      1 
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdj = model.matrix(~ Mn_log2 + female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + pDatcordMetal$smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)
+
+dim(modAdj)
+# 361  21
+
+# M-values for comoplete cases
+ComBat.Mvalues.noMissAdj = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdj)]
+ComBat.Mvalues.noMissAdj <- ComBat.Mvalues.noMissAdj[,match(rownames(modAdj), colnames(ComBat.Mvalues.noMissAdj))]
+all(rownames(modAdj)==colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+identical(rownames(modAdj),colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+
+DMP_Mn_Adj <- run_DMP(mvals = ComBat.Mvalues.noMissAdj, design = modAdj)
+
+table(DMP_Mn_Adj$P.Value < 0.05)
+# FALSE   TRUE 
+# 384293  10167 
+
+table(DMP_Mn_Adj$adj.P.Val < 0.05)
+#  FALSE   TRUE 
+# 394459      1 
+
+DMP_Mn_Adj_sig = DMP_Mn_Adj[DMP_Mn_Adj$adj.P.Val < 0.05,]
+DMP_Mn_Adj_sig = cbind(DMP_Mn_Adj_sig, anno[,'chr'][match(rownames(DMP_Mn_Adj_sig), rownames(anno))])
+DMP_Mn_Adj_sig = cbind(DMP_Mn_Adj_sig, anno[,'pos'][match(rownames(DMP_Mn_Adj_sig), rownames(anno))])
+DMP_Mn_Adj_sig = cbind(DMP_Mn_Adj_sig, anno[,'UCSC_RefGene_Name'][match(rownames(DMP_Mn_Adj_sig), rownames(anno))])
+colnames(DMP_Mn_Adj_sig)[c(12,13,14)] = c('chr', 'pos', 'gene')
+DMP_Mn_Adj_sig$group = 'all'
+
+# cpg        logFC     CI.L       CI.R      AveExpr  P.Value      adj.P.Val    adj.P.Val.bonf   chr     pos        gene
+# cg02042823 0.4272515 00.3056604 0.5488426 5.752489 2.351256e-11 9.274764e-06 9.274764e-06     chr16   6714429    A2BP1;A2BP1
+
+# QQ and volcano plots
+gg_qqplot(DMP_Mn_Adj $P.Value)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Mn_adj_012621.png', type = "png", dpi = 300)
+
+volcano(DMP_Mn_Adj)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Mn_adj_012621.png', type = "png", dpi = 300)
+
+
+# combp
+
+DMP_Mn_Adj = cbind(DMP_Mn_Adj, anno[,'chr'][match(rownames(DMP_Mn_Adj), rownames(anno))])
+DMP_Mn_Adj = cbind(DMP_Mn_Adj, anno[,'pos'][match(rownames(DMP_Mn_Adj), rownames(anno))])
+DMP_Mn_Adj$end = DMP_Mn_Adj[,13]
+DMP_Mn_Adj_p = DMP_Mn_Adj[,c(12,13,14,7,1)]
+colnames(DMP_Mn_Adj_p) = c( "chr","start", "end","p", "probe")
+DMP_Mn_Adj_p$chr = as.numeric(gsub("chr", "", DMP_Mn_Adj_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Mn')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Mn')
+combp2(DMP_Mn_Adj_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   2 
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 6	32063725	32064161	4.22E-09	436	8.44E-09	3.82E-06	13
+# 7	1250125	1250182	0.001773866	57	0.001773866	0.999995387	2
+
+
+# manhattan plot
+region = read.csv('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Mn/resu_combp.csv')
+probe = DMP_Mn_Adj
+colnames(probe)[c(12,13)] = c('chr', 'pos')
+quartz(width = 5.5, height = 3)
+manhattan(probe, region, FDR = T)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Mn_adj_012621.png', type = "png", dpi = 300)
+
+write.csv(DMP_Mn_Adj, '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/EWAS results/DMP_Mn_Adj_012621.csv')
+
+rm(DMP_Mn_Adj_p, DMP_Mn_Adj);gc()
+
+
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Mn_adj_012621.png")
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Mn_adj_012621.png")
+```
+
+```{r, out.width = '100%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Mn_adj_012621.png")
+```
+
+#### Mn, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjF = model.matrix(~ Mn_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalF)
+
+dim(modAdjF)
+# 169  20
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjF = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjF)]
+ComBat.Mvalues.noMissAdjF <- ComBat.Mvalues.noMissAdjF[,match(rownames(modAdjF), colnames(ComBat.Mvalues.noMissAdjF))]
+all(rownames(modAdjF)==colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+identical(rownames(modAdjF),colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+
+DMP_Mn_AdjF <- run_DMP(mvals = ComBat.Mvalues.noMissAdjF, design = modAdjF)
+
+table(DMP_Mn_AdjF$P.Value < 0.05)
+# FALSE   TRUE 
+# 381227  13233
+
+table(DMP_Mn_AdjF$adj.P.Val < 0.05)
+ # FALSE   TRUE 
+# 394451      9 
+
+DMP_Mn_AdjF_sig = DMP_Mn_AdjF[DMP_Mn_AdjF$adj.P.Val < 0.05,]
+DMP_Mn_AdjF_sig = cbind(DMP_Mn_AdjF_sig, anno[,'chr'][match(rownames(DMP_Mn_AdjF_sig), rownames(anno))])
+DMP_Mn_AdjF_sig = cbind(DMP_Mn_AdjF_sig, anno[,'pos'][match(rownames(DMP_Mn_AdjF_sig), rownames(anno))])
+DMP_Mn_AdjF_sig = cbind(DMP_Mn_AdjF_sig, anno[,'UCSC_RefGene_Name'][match(rownames(DMP_Mn_AdjF_sig), rownames(anno))])
+colnames(DMP_Mn_AdjF_sig)[c(12,13,14)] = c('chr', 'pos', 'gene')
+DMP_Mn_AdjF_sig$group = 'female'
+
+               # logFC       CI.L       CI.R   AveExpr      P.Value  adj.P.Val adj.P.Val.bonf   chr       pos                 gene
+# cg00954161  0.4166381  0.2654991  0.5677770  5.991042 2.029877e-07 0.03412686     0.08007053  chr1   3696925               LRRC47
+# cg01744822 -0.2214177 -0.3066708 -0.1361645 -4.356058 8.673707e-07 0.04429882     0.34214305 chr16  73100510                     
+# cg08904630  0.2106117  0.1294245  0.2917988  5.334267 8.908037e-07 0.04429882     0.35138641 chr10  71490427                     
+# cg11161853 -0.1371691 -0.1901881 -0.0841501 -5.291707 9.477092e-07 0.04429882     0.37383338  chr3  67705044               SUCLG2
+# cg15712310 -0.1925527 -0.2621082 -0.1229972 -1.616837 1.816544e-07 0.03412686     0.07165539 chr16  73100790                     
+# cg19908812 -0.1695725 -0.2350554 -0.1040897 -6.016376 9.276010e-07 0.04429882     0.36590148  chr4 164253006                NPY1R
+# cg22799518  0.5202195  0.3274606  0.7129784  6.340619 3.460616e-07 0.03412686     0.13650745 chr12  56988862                RBMS2
+# cg23903787  0.3403666  0.2151563  0.4655768  3.015174 2.891939e-07 0.03412686     0.11407541  chr4   3527371               LRPAP1
+# cg26462130  0.3852610  0.2359445  0.5345776  6.111618 1.010722e-06 0.04429882     0.39868934  chr7   2052961 MAD1L1;MAD1L1;MAD1L1
+
+lambda(DMP_Mn_AdjF$P.Value)
+# 0.8939725
+
+# combp
+DMP_Mn_AdjF = cbind(DMP_Mn_AdjF, anno[,'chr'][match(rownames(DMP_Mn_AdjF), rownames(anno))])
+DMP_Mn_AdjF = cbind(DMP_Mn_AdjF, anno[,'pos'][match(rownames(DMP_Mn_AdjF), rownames(anno))])
+DMP_Mn_AdjF$end = DMP_Mn_AdjF[,13]
+DMP_Mn_AdjF_p = DMP_Mn_AdjF[,c(12,13,14,7,1)]
+colnames(DMP_Mn_AdjF_p) = c( "chr","start", "end","p", "probe")
+DMP_Mn_AdjF_p$chr = as.numeric(gsub("chr", "", DMP_Mn_AdjF_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Mn_F')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Mn_F')
+combp2(DMP_Mn_AdjF_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   7
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 16	73100425	73100790	1.89E-13	365	1.32E-12	2.04E-10	3
+# 3	148804271	148804556	2.99E-10	285	1.05E-09	4.14E-07	8
+# 3	67704889	67705285	4.53E-10	396	1.06E-09	4.51E-07	6
+# 6	161561030	161561121	1.64E-09	91	2.87E-09	7.12E-06	3
+# 7	3019158	3019382	3.05E-09	224	4.27E-09	5.37E-06	4
+# 7	27170716	27171051	3.98E-09	335	4.64E-09	4.68E-06	9
+# 13	97646638	97646765	5.33E-07	127	5.33E-07	0.001653285	4
+
+rm(DMP_Mn_AdjF_p, DMP_Mn_AdjF);gc()
+
+```
+
+#### Mn, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjM = model.matrix(~ Mn_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalM)
+
+dim(modAdjM)
+# 192  23
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjM = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjM)]
+ComBat.Mvalues.noMissAdjM <- ComBat.Mvalues.noMissAdjM[,match(rownames(modAdjM), colnames(ComBat.Mvalues.noMissAdjM))]
+all(rownames(modAdjM)==colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+identical(rownames(modAdjM),colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+
+DMP_Mn_AdjM <- run_DMP(mvals = ComBat.Mvalues.noMissAdjM, design = modAdjM)
+
+table(DMP_Mn_AdjM$P.Value < 0.05)
+# FALSE   TRUE 
+# 381661  12799 
+
+table(DMP_Mn_AdjM$adj.P.Val < 0.05)
+ #  FALSE  TRUE 
+# 394458      2 
+
+DMP_Mn_AdjM_sig = DMP_Mn_AdjM[DMP_Mn_AdjM$adj.P.Val < 0.05,]
+DMP_Mn_AdjM_sig = cbind(DMP_Mn_AdjM_sig, anno[,'chr'][match(rownames(DMP_Mn_AdjM_sig), rownames(anno))])
+DMP_Mn_AdjM_sig = cbind(DMP_Mn_AdjM_sig, anno[,'pos'][match(rownames(DMP_Mn_AdjM_sig), rownames(anno))])
+DMP_Mn_AdjM_sig = cbind(DMP_Mn_AdjM_sig, anno[,'UCSC_RefGene_Name'][match(rownames(DMP_Mn_AdjM_sig), rownames(anno))])
+colnames(DMP_Mn_AdjM_sig)[c(12,13,14)] = c('chr', 'pos', 'gene')
+DMP_Mn_AdjM_sig$group = 'male'
+
+                # logFC       CI.L       CI.R   AveExpr      P.Value    adj.P.Val adj.P.Val.bonf   chr       pos        gene
+# cg02042823  0.5072251  0.3572656  0.6571846  5.711857 3.145883e-10 0.0001240925   0.0001240925 chr16   6714429 A2BP1;A2BP1
+# cg03763518 -0.2905872 -0.3909439 -0.1902304 -3.505387 4.655006e-08 0.0091810682   0.0183621364  chr1 150245044     C1orf54
+
+lambda(DMP_Mn_AdjM$P.Value)
+# 0.8388281
+
+# combp
+DMP_Mn_AdjM = cbind(DMP_Mn_AdjM, anno[,'chr'][match(rownames(DMP_Mn_AdjM), rownames(anno))])
+DMP_Mn_AdjM = cbind(DMP_Mn_AdjM, anno[,'pos'][match(rownames(DMP_Mn_AdjM), rownames(anno))])
+DMP_Mn_AdjM$end = DMP_Mn_AdjM[,13]
+DMP_Mn_AdjM_p = DMP_Mn_AdjM[,c(12,13,14,7,1)]
+colnames(DMP_Mn_AdjM_p) = c( "chr","start", "end","p", "probe")
+DMP_Mn_AdjM_p$chr = as.numeric(gsub("chr", "", DMP_Mn_AdjM_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Mn_M')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Mn_M')
+combp2(DMP_Mn_AdjM_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   4
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 20	36148603	36149271	3.30E-12	668	1.17E-11	1.95E-09	31
+# 7	1250087	1250273	5.84E-12	186	1.17E-11	1.24E-08	7
+# 15	99789621	99789855	1.78E-09	234	2.37E-09	3.00E-06	5
+# 1	75198817	75199117	8.32E-08	300	8.32E-08	0.000109329	6
+
+write.csv(rbind(DMP_Mn_Adj_sig, DMP_Mn_AdjF_sig, DMP_Mn_AdjM_sig), '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Mn_DMPs_sig.csv')
+
+rm(DMP_Mn_AdjM_p, DMP_Mn_AdjM);gc()
+```
+
+
+### Pb
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+# Unadjusted
+modUnadj = model.matrix(~ pDatcordMetal$Pb_log2)
+
+DMP_Pb_unadj <- run_DMP(mvals = ComBat.Mvalues.Metals, design = modUnadj)
+
+table(DMP_Pb_unadj$P.Value < 0.05)
+# FALSE   TRUE 
+# 368604  25856
+
+table(DMP_Pb_unadj$adj.P.Val < 0.05)
+#   FALSE   
+# 394460     
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdj = model.matrix(~ Pb_log2 + female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + pDatcordMetal$smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)
+
+dim(modAdj)
+# 361  25
+
+# M-values for comoplete cases
+ComBat.Mvalues.noMissAdj = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdj)]
+ComBat.Mvalues.noMissAdj <- ComBat.Mvalues.noMissAdj[,match(rownames(modAdj), colnames(ComBat.Mvalues.noMissAdj))]
+all(rownames(modAdj)==colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+identical(rownames(modAdj),colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+
+DMP_Pb_Adj <- run_DMP(mvals = ComBat.Mvalues.noMissAdj, design = modAdj)
+
+table(DMP_Pb_Adj$P.Value < 0.05)
+# FALSE   TRUE 
+# 379769  14691 
+
+table(DMP_Pb_Adj$adj.P.Val < 0.05)
+#  FALSE   
+# 394460       
+
+# QQ and volcano plots
+gg_qqplot(DMP_Pb_Adj$P.Value)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Pb_adj_012621.png', type = "png", dpi = 300)
+
+volcano(DMP_Pb_Adj)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Pb_adj_012621.png', type = "png", dpi = 300)
+
+
+# combp
+
+DMP_Pb_Adj = cbind(DMP_Pb_Adj, anno[,'chr'][match(rownames(DMP_Pb_Adj), rownames(anno))])
+DMP_Pb_Adj = cbind(DMP_Pb_Adj, anno[,'pos'][match(rownames(DMP_Pb_Adj), rownames(anno))])
+DMP_Pb_Adj$end = DMP_Pb_Adj[,13]
+DMP_Pb_Adj_p = DMP_Pb_Adj[,c(12,13,14,7,1)]
+colnames(DMP_Pb_Adj_p) = c( "chr","start", "end","p", "probe")
+DMP_Pb_Adj_p$chr = as.numeric(gsub("chr", "", DMP_Pb_Adj_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Pb')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Pb')
+combp2(DMP_Pb_Adj_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of identified DMR:  0
+
+
+# manhattan plot
+region = data.frame(chr = NA, start = NA, end = NA, p = NA, length = NA, fdr = NA, sidak = NA, nprobe = NA)
+probe = DMP_Pb_Adj
+colnames(probe)[c(12,13)] = c('chr', 'pos')
+quartz(width = 5.5, height = 3)
+manhattan(probe, region)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Pb_adj_012621.png', type = "png", dpi = 300)
+
+write.csv(DMP_Pb_Adj, '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/EWAS results/DMP_Pb_Adj_012621.csv')
+
+rm(DMP_Pb_Adj_p, DMP_Pb_Adj);gc()
+
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Pb_adj_012621.png")
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Pb_adj_012621.png")
+```
+
+```{r, out.width = '100%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Pb_adj_012621.png")
+```
+
+#### Pb, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjF = model.matrix(~ Pb_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalF)
+
+dim(modAdjF)
+# 169  20
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjF = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjF)]
+ComBat.Mvalues.noMissAdjF <- ComBat.Mvalues.noMissAdjF[,match(rownames(modAdjF), colnames(ComBat.Mvalues.noMissAdjF))]
+all(rownames(modAdjF)==colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+identical(rownames(modAdjF),colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+
+DMP_Pb_AdjF <- run_DMP(mvals = ComBat.Mvalues.noMissAdjF, design = modAdjF)
+
+table(DMP_Pb_AdjF$P.Value < 0.05)
+# FALSE   TRUE 
+# 374046  20414 
+
+table(DMP_Pb_AdjF$adj.P.Val < 0.05)
+ # FALSE  
+# 394460   
+
+lambda(DMP_Pb_AdjF$P.Value)
+# 1.132739
+
+# combp
+DMP_Pb_AdjF = cbind(DMP_Pb_AdjF, anno[,'chr'][match(rownames(DMP_Pb_AdjF), rownames(anno))])
+DMP_Pb_AdjF = cbind(DMP_Pb_AdjF, anno[,'pos'][match(rownames(DMP_Pb_AdjF), rownames(anno))])
+DMP_Pb_AdjF$end = DMP_Pb_AdjF[,13]
+DMP_Pb_AdjF_p = DMP_Pb_AdjF[,c(12,13,14,7,1)]
+colnames(DMP_Pb_AdjF_p) = c( "chr","start", "end","p", "probe")
+DMP_Pb_AdjF_p$chr = as.numeric(gsub("chr", "", DMP_Pb_AdjF_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Pb_F')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Pb_F')
+combp2(DMP_Pb_AdjF_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of identified DMR:  0
+
+rm(DMP_Pb_AdjF_p, DMP_Pb_AdjF);gc()
+```
+
+#### Pb, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjM = model.matrix(~ Pb_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalM)
+
+dim(modAdjM)
+# 192  20
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjM = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjM)]
+ComBat.Mvalues.noMissAdjM <- ComBat.Mvalues.noMissAdjM[,match(rownames(modAdjM), colnames(ComBat.Mvalues.noMissAdjM))]
+all(rownames(modAdjM)==colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+identical(rownames(modAdjM),colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+
+DMP_Pb_AdjM <- run_DMP(mvals = ComBat.Mvalues.noMissAdjM, design = modAdjM)
+
+table(DMP_Pb_AdjM$P.Value < 0.05)
+# FALSE   TRUE 
+# 380938  13522 
+
+table(DMP_Pb_AdjM$adj.P.Val < 0.05)
+ #  FALSE 
+# 394460
+
+lambda(DMP_Pb_AdjM$P.Value)
+# 0.8591965
+
+# combp
+DMP_Pb_AdjM = cbind(DMP_Pb_AdjM, anno[,'chr'][match(rownames(DMP_Pb_AdjM), rownames(anno))])
+DMP_Pb_AdjM = cbind(DMP_Pb_AdjM, anno[,'pos'][match(rownames(DMP_Pb_AdjM), rownames(anno))])
+DMP_Pb_AdjM$end = DMP_Pb_AdjM[,13]
+DMP_Pb_AdjM_p = DMP_Pb_AdjM[,c(12,13,14,7,1)]
+colnames(DMP_Pb_AdjM_p) = c( "chr","start", "end","p", "probe")
+DMP_Pb_AdjM_p$chr = as.numeric(gsub("chr", "", DMP_Pb_AdjM_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Pb_M')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Pb_M')
+combp2(DMP_Pb_AdjM_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 14	100203941	100204258	1.54E-09	317	3.09E-09	1.92E-06	6
+# 3	122640777	122641144	6.06E-09	367	6.06E-09	6.52E-06	4
+
+rm(DMP_Pb_AdjM_p, DMP_Pb_AdjM);gc()
+```
+
+
+### Se
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+# Unadjusted
+modUnadj = model.matrix(~ pDatcordMetal$Se_log2)
+
+DMP_Se_unadj <- run_DMP(mvals = ComBat.Mvalues.Metals, design = modUnadj)
+
+table(DMP_Se_unadj$P.Value < 0.05)
+# FALSE   TRUE 
+# 371013  23447 
+
+table(DMP_Se_unadj$adj.P.Val < 0.05)
+#   FALSE   
+# 394460     
+
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdj = model.matrix(~ Se_log2 + female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + pDatcordMetal$smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)
+
+dim(modAdj)
+# 361  21
+
+# M-values for comoplete cases
+ComBat.Mvalues.noMissAdj = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdj)]
+ComBat.Mvalues.noMissAdj <- ComBat.Mvalues.noMissAdj[,match(rownames(modAdj), colnames(ComBat.Mvalues.noMissAdj))]
+all(rownames(modAdj)==colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+identical(rownames(modAdj),colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+
+DMP_Se_Adj <- run_DMP(mvals = ComBat.Mvalues.noMissAdj, design = modAdj)
+
+table(DMP_Se_Adj$P.Value < 0.05)
+# FALSE   TRUE 
+# 378563  15897
+
+table(DMP_Se_Adj$adj.P.Val < 0.05)
+#  FALSE   
+# 394460       
+
+# QQ and volcano plots
+gg_qqplot(DMP_Se_Adj$P.Value)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Se_adj_012621.png', type = "png", dpi = 300)
+
+volcano(DMP_Se_Adj)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Se_adj_012621.png', type = "png", dpi = 300)
+
+
+# combp
+
+DMP_Se_Adj = cbind(DMP_Se_Adj, anno[,'chr'][match(rownames(DMP_Se_Adj), rownames(anno))])
+DMP_Se_Adj = cbind(DMP_Se_Adj, anno[,'pos'][match(rownames(DMP_Se_Adj), rownames(anno))])
+DMP_Se_Adj$end = DMP_Se_Adj[,13]
+DMP_Se_Adj_p = DMP_Se_Adj[,c(12,13,14,7,1)]
+colnames(DMP_Se_Adj_p) = c( "chr","start", "end","p", "probe")
+DMP_Se_Adj_p$chr = as.numeric(gsub("chr", "", DMP_Se_Adj_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Se')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Se')
+combp2(DMP_Se_Adj_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 8	144635259	144635610	6.99E-09	351	1.40E-08	7.86E-06	9
+# 4	74847645	74847829	1.95E-08	184	1.95E-08	4.18E-05	7
+
+
+# manhattan plot
+region = read.csv('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Se/resu_combp.csv')
+probe = DMP_Se_Adj
+colnames(probe)[c(12,13)] = c('chr', 'pos')
+quartz(width = 5.5, height = 3)
+manhattan(probe, region)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Se_adj_012621.png', type = "png", dpi = 300)
+
+
+write.csv(DMP_Se_Adj, '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals/EWAS results_local/DMP_Se_Adj_012621.csv')
+
+rm(DMP_Se_Adj_p, DMP_Se_Adj);gc()
+
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Se_adj_012621.png")
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Se_adj_012621.png")
+```
+
+```{r, out.width = '100%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Se_adj_012621.png")
+```
+
+#### Se, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjF = model.matrix(~ Se_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalF)
+
+dim(modAdjF)
+# 169  20
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjF = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjF)]
+ComBat.Mvalues.noMissAdjF <- ComBat.Mvalues.noMissAdjF[,match(rownames(modAdjF), colnames(ComBat.Mvalues.noMissAdjF))]
+all(rownames(modAdjF)==colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+identical(rownames(modAdjF),colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+
+DMP_Se_AdjF <- run_DMP(mvals = ComBat.Mvalues.noMissAdjF, design = modAdjF)
+
+table(DMP_Se_AdjF$P.Value < 0.05)
+# FALSE   TRUE 
+# 383709  10751 
+
+table(DMP_Se_AdjF$adj.P.Val < 0.05)
+ # FALSE  
+# 394460   
+
+lambda(DMP_Se_AdjF$P.Value)
+# 0.717438
+
+# combp
+DMP_Se_AdjF = cbind(DMP_Se_AdjF, anno[,'chr'][match(rownames(DMP_Se_AdjF), rownames(anno))])
+DMP_Se_AdjF = cbind(DMP_Se_AdjF, anno[,'pos'][match(rownames(DMP_Se_AdjF), rownames(anno))])
+DMP_Se_AdjF$end = DMP_Se_AdjF[,13]
+DMP_Se_AdjF_p = DMP_Se_AdjF[,c(12,13,14,7,1)]
+colnames(DMP_Se_AdjF_p) = c( "chr","start", "end","p", "probe")
+DMP_Se_AdjF_p$chr = as.numeric(gsub("chr", "", DMP_Se_AdjF_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Se_F')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Se_F')
+combp2(DMP_Se_AdjF_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 8	144635259	144636113	1.80E-24	854	7.19E-24	0	12
+# 15	75019069	75019376	2.47E-08	307	4.34E-08	3.18E-05	10
+# 19	1510493	1510692	3.25E-08	199	4.34E-08	6.45E-05	4
+# 18	23713837	23714009	0.0002329	172	0.0002329	0.413854892	3
+
+rm(DMP_Se_AdjF_p, DMP_Se_AdjF);gc()
+```
+
+#### Se, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjM = model.matrix(~ Se_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalM)
+
+dim(modAdjM)
+# 192  20
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjM = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjM)]
+ComBat.Mvalues.noMissAdjM <- ComBat.Mvalues.noMissAdjM[,match(rownames(modAdjM), colnames(ComBat.Mvalues.noMissAdjM))]
+all(rownames(modAdjM)==colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+identical(rownames(modAdjM),colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+
+DMP_Se_AdjM <- run_DMP(mvals = ComBat.Mvalues.noMissAdjM, design = modAdjM)
+
+table(DMP_Se_AdjM$P.Value < 0.05)
+# FALSE   TRUE 
+# 371363  23097 
+
+table(DMP_Se_AdjM$adj.P.Val < 0.05)
+ #  FALSE 
+# 394460
+
+lambda(DMP_Se_AdjM$P.Value)
+# 1.035939
+
+# combp
+DMP_Se_AdjM = cbind(DMP_Se_AdjM, anno[,'chr'][match(rownames(DMP_Se_AdjM), rownames(anno))])
+DMP_Se_AdjM = cbind(DMP_Se_AdjM, anno[,'pos'][match(rownames(DMP_Se_AdjM), rownames(anno))])
+DMP_Se_AdjM$end = DMP_Se_AdjM[,13]
+DMP_Se_AdjM_p = DMP_Se_AdjM[,c(12,13,14,7,1)]
+colnames(DMP_Se_AdjM_p) = c( "chr","start", "end","p", "probe")
+DMP_Se_AdjM_p$chr = as.numeric(gsub("chr", "", DMP_Se_AdjM_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Se_M')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Se_M')
+combp2(DMP_Se_AdjM_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 19	57742254	57742423	1.16E-09	169	1.16E-09	2.72E-06	6
+
+rm(DMP_Se_AdjM_p, DMP_Se_AdjM);gc()
+```
+
+
+### Zn
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+# Unadjusted
+modUnadj = model.matrix(~ pDatcordMetal$Zn_log2)
+
+DMP_Zn_unadj <- run_DMP(mvals = ComBat.Mvalues.Metals, design = modUnadj)
+
+table(DMP_Zn_unadj$P.Value < 0.05)
+# FALSE   TRUE 
+# 369371  25089 
+
+table(DMP_Zn_unadj$adj.P.Val < 0.05)
+#   FALSE   
+# 394460     
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdj = model.matrix(~ Zn_log2 + female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + pDatcordMetal$smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)
+
+dim(modAdj)
+# 361  21
+
+# M-values for comoplete cases
+ComBat.Mvalues.noMissAdj = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdj)]
+ComBat.Mvalues.noMissAdj <- ComBat.Mvalues.noMissAdj[,match(rownames(modAdj), colnames(ComBat.Mvalues.noMissAdj))]
+all(rownames(modAdj)==colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+identical(rownames(modAdj),colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+
+DMP_Zn_Adj <- run_DMP(mvals = ComBat.Mvalues.noMissAdj, design = modAdj)
+
+table(DMP_Zn_Adj$P.Value < 0.05)
+# FALSE   TRUE 
+# 356755  37705 
+
+table(DMP_Zn_Adj$adj.P.Val < 0.05)
+#  FALSE   
+# 394460       
+
+# QQ and volcano plots
+gg_qqplot(DMP_Zn_Adj$P.Value)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Zn_adj_012621.png', type = "png", dpi = 300)
+
+volcano(DMP_Zn_Adj)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Zn_adj_012621.png', type = "png", dpi = 300)
+
+
+# combp
+DMP_Zn_Adj = cbind(DMP_Zn_Adj, anno[,'chr'][match(rownames(DMP_Zn_Adj), rownames(anno))])
+DMP_Zn_Adj = cbind(DMP_Zn_Adj, anno[,'pos'][match(rownames(DMP_Zn_Adj), rownames(anno))])
+DMP_Zn_Adj$end = DMP_Zn_Adj[,13]
+DMP_Zn_Adj_p = DMP_Zn_Adj[,c(12,13,14,7,1)]
+colnames(DMP_Zn_Adj_p) = c( "chr","start", "end","p", "probe")
+DMP_Zn_Adj_p$chr = as.numeric(gsub("chr", "", DMP_Zn_Adj_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Zn')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Zn')
+combp2(DMP_Zn_Adj_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   6 
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 3	48632483	48632783	3.36E-10	300	1.74E-09	4.42E-07	8
+# 17	79503641	79503877	5.80E-10	236	1.74E-09	9.69E-07	4
+# 12	1973871	1974168	3.98E-09	297	7.95E-09	5.28E-06	3
+# 11	92702372	92702912	7.24E-09	540	1.09E-08	5.29E-06	8
+# 20	25129506	25129562	5.03E-06	56	6.04E-06	0.034838035	5
+# 6	32165175	32165200	7.09E-05	25	7.09E-05	0.673546346	3
+
+
+# manhattan plot
+region = read.csv('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Zn/resu_combp.csv')
+probe = DMP_Zn_Adj
+colnames(probe)[c(12,13)] = c('chr', 'pos')
+quartz(width = 5.5, height = 3)
+manhattan(probe, region)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Zn_adj_012621.png', type = "png", dpi = 300)
+
+write.csv(DMP_Zn_Adj, '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/EWAS results/DMP_Zn_Adj_012621.csv')
+
+rm(DMP_Zn_Adj_p, DMP_Zn_Adj);gc()
+
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Zn_adj_012621.png")
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Zn_adj_012621.png")
+```
+
+```{r, out.width = '100%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Zn_adj_012621.png")
+```
+
+#### Zn, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjF = model.matrix(~ Zn_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalF)
+
+dim(modAdjF)
+# 169  20
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjF = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjF)]
+ComBat.Mvalues.noMissAdjF <- ComBat.Mvalues.noMissAdjF[,match(rownames(modAdjF), colnames(ComBat.Mvalues.noMissAdjF))]
+all(rownames(modAdjF)==colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+identical(rownames(modAdjF),colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+
+DMP_Zn_AdjF <- run_DMP(mvals = ComBat.Mvalues.noMissAdjF, design = modAdjF)
+
+table(DMP_Zn_AdjF$P.Value < 0.05)
+# FALSE   TRUE 
+# 377174  17286 
+
+table(DMP_Zn_AdjF$adj.P.Val < 0.05)
+ # FALSE  
+# 394460   
+
+lambda(DMP_Zn_AdjF$P.Value)
+# 1.062488
+
+# combp
+
+DMP_Zn_AdjF = cbind(DMP_Zn_AdjF, anno[,'chr'][match(rownames(DMP_Zn_AdjF), rownames(anno))])
+DMP_Zn_AdjF = cbind(DMP_Zn_AdjF, anno[,'pos'][match(rownames(DMP_Zn_AdjF), rownames(anno))])
+DMP_Zn_AdjF $end = DMP_Zn_AdjF[,13]
+DMP_Zn_AdjF_p = DMP_Zn_AdjF[,c(12,13,14,7,1)]
+colnames(DMP_Zn_AdjF_p) = c( "chr","start", "end","p", "probe")
+DMP_Zn_AdjF_p$chr = as.numeric(gsub("chr", "", DMP_Zn_AdjF_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Zn_F')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Zn_F')
+combp2(DMP_Zn_AdjF_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 3	138763669	138763910	3.16E-13	241	3.16E-13	5.18E-10	5
+
+rm(DMP_Zn_AdjF_p, DMP_Zn_AdjF); gc()
+```
+
+#### Zn, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjM = model.matrix(~ Zn_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetalM)
+
+dim(modAdjM)
+# 192  20
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjM = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjM)]
+ComBat.Mvalues.noMissAdjM <- ComBat.Mvalues.noMissAdjM[,match(rownames(modAdjM), colnames(ComBat.Mvalues.noMissAdjM))]
+all(rownames(modAdjM)==colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+identical(rownames(modAdjM),colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+
+DMP_Zn_AdjM <- run_DMP(mvals = ComBat.Mvalues.noMissAdjM, design = modAdjM)
+
+table(DMP_Zn_AdjM$P.Value < 0.05)
+# FALSE   TRUE 
+# 372459  22001 
+
+table(DMP_Zn_AdjM$adj.P.Val < 0.05)
+ #  FALSE 
+# 394460
+
+lambda(DMP_Zn_AdjM$P.Value)
+# 1.099038
+
+# combp
+
+DMP_Zn_AdjM = cbind(DMP_Zn_AdjM, anno[,'chr'][match(rownames(DMP_Zn_AdjM), rownames(anno))])
+DMP_Zn_AdjM = cbind(DMP_Zn_AdjM, anno[,'pos'][match(rownames(DMP_Zn_AdjM), rownames(anno))])
+DMP_Zn_AdjM $end = DMP_Zn_AdjM[,13]
+DMP_Zn_AdjM_p = DMP_Zn_AdjM[,c(12,13,14,7,1)]
+colnames(DMP_Zn_AdjM_p) = c( "chr","start", "end","p", "probe")
+DMP_Zn_AdjM_p$chr = as.numeric(gsub("chr", "", DMP_Zn_AdjM_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Zn_M')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Zn_M')
+combp2(DMP_Zn_AdjM_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 13	110319561	110319607	5.00E-09	46	1.07E-08	4.29E-05	3
+# 5	112824496	112824765	6.75E-09	269	1.07E-08	9.90E-06	6
+# 1	1361654	1361729	7.99E-09	75	1.07E-08	4.20E-05	3
+# 6	31651019	31651029	0.00773768	10	0.00773768	1	2
+
+rm(DMP_Zn_AdjM_p, DMP_Zn_AdjM); gc()
+```
+
+
+
+
+
+
+
+
+
+
+
