@@ -2187,6 +2187,29 @@ write.csv(DMP_Mn_Adj, '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_loc
 rm(DMP_Mn_Adj_p, DMP_Mn_Adj);gc()
 
 
+# EWAS using Beta values
+# Beta-values for comoplete cases
+ComBat.Betas.noMissAdj = ComBat.Betas.Metals[,colnames(ComBat.Betas.Metals) %in% rownames(modAdj)]
+ComBat.Betas.noMissAdj <- ComBat.Betas.noMissAdj[,match(rownames(modAdj), colnames(ComBat.Betas.noMissAdj))]
+all(rownames(modAdj)==colnames(ComBat.Betas.noMissAdj))
+# TRUE 
+identical(rownames(modAdj),colnames(ComBat.Betas.noMissAdj))
+# TRUE 
+
+DMP_Mn_Adj_betas <- run_DMP(mvals = ComBat.Betas.noMissAdj, design = modAdj)
+
+table(DMP_Mn_Adj_betas$P.Value < 0.05)
+# FALSE   TRUE 
+# 383631  10829 
+
+table(DMP_Mn_Adj_betas$adj.P.Val < 0.05)
+ # FALSE   TRUE 
+# 394382     78 
+
+DMP_Mn_Adj_sig = merge(DMP_Mn_Adj_sig, DMP_Mn_Adj_betas, by = 'cpg')
+
+rm(DMP_Mn_Adj_betas, ComBat.Betas.noMissAdj);gc()
+
 ```
 
 ```{r, out.width = '60%'}
@@ -2275,6 +2298,28 @@ combp2(DMP_Mn_AdjF_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
 
 rm(DMP_Mn_AdjF_p, DMP_Mn_AdjF);gc()
 
+# EWAS using Beta values
+# Beta-values for comoplete cases
+ComBat.Betas.noMissAdjF = ComBat.Betas.Metals[,colnames(ComBat.Betas.Metals) %in% rownames(modAdjF)]
+ComBat.Betas.noMissAdjF <- ComBat.Betas.noMissAdjF[,match(rownames(modAdjF), colnames(ComBat.Betas.noMissAdjF))]
+all(rownames(modAdjF)==colnames(ComBat.Betas.noMissAdjF))
+# TRUE 
+identical(rownames(modAdjF),colnames(ComBat.Betas.noMissAdjF))
+# TRUE 
+
+DMP_Mn_Adj_betasF <- run_DMP(mvals = ComBat.Betas.noMissAdjF, design = modAdjF)
+
+table(DMP_Mn_Adj_betasF$P.Value < 0.05)
+# FALSE   TRUE 
+# 380166  14294 
+
+table(DMP_Mn_Adj_betasF$adj.P.Val < 0.05)
+ # FALSE   TRUE 
+# 394371     89
+
+DMP_Mn_AdjF_sig = merge(DMP_Mn_AdjF_sig, DMP_Mn_Adj_betasF, by = 'cpg')
+
+rm(DMP_Mn_Adj_betasF, ComBat.Betas.noMissAdjF);gc()
 ```
 
 #### Mn, male
@@ -2339,9 +2384,32 @@ combp2(DMP_Mn_AdjM_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
 # 15	99789621	99789855	1.78E-09	234	2.37E-09	3.00E-06	5
 # 1	75198817	75199117	8.32E-08	300	8.32E-08	0.000109329	6
 
+rm(DMP_Mn_AdjM_p, DMP_Mn_AdjM);gc()
+
+# EWAS using Beta values
+# Beta-values for comoplete cases
+ComBat.Betas.noMissAdjM = ComBat.Betas.Metals[,colnames(ComBat.Betas.Metals) %in% rownames(modAdjM)]
+ComBat.Betas.noMissAdjM <- ComBat.Betas.noMissAdjM[,match(rownames(modAdjM), colnames(ComBat.Betas.noMissAdjM))]
+all(rownames(modAdjM)==colnames(ComBat.Betas.noMissAdjM))
+# TRUE 
+identical(rownames(modAdjM),colnames(ComBat.Betas.noMissAdjM))
+# TRUE 
+
+DMP_Mn_Adj_betasM <- run_DMP(mvals = ComBat.Betas.noMissAdjM, design = modAdjM)
+
+table(DMP_Mn_Adj_betasM$P.Value < 0.05)
+# FALSE   TRUE 
+# 380166  14294 
+
+table(DMP_Mn_Adj_betasM$adj.P.Val < 0.05)
+ # FALSE   TRUE 
+# 394371     89
+
+DMP_Mn_AdjM_sig = merge(DMP_Mn_AdjM_sig, DMP_Mn_Adj_betasM, by = 'cpg')
+
 write.csv(rbind(DMP_Mn_Adj_sig, DMP_Mn_AdjF_sig, DMP_Mn_AdjM_sig), '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Mn_DMPs_sig.csv')
 
-rm(DMP_Mn_AdjM_p, DMP_Mn_AdjM);gc()
+rm(DMP_Mn_Adj_betasM, ComBat.Betas.noMissAdjM);gc()
 ```
 
 
