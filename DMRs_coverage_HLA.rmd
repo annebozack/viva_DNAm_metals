@@ -1,0 +1,164 @@
+---
+title: "Project Viva: cord blood DNAm and metals DMR summary"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+
+## Required Packages and functions
+
+```{r,warning=FALSE,message=FALSE,eval=FALSE}
+library("TxDb.Hsapiens.UCSC.hg19.knownGene")
+library(rlang)
+devtools::install_github("jmw86069/splicejam")
+library(splicejam)
+BiocManager::install("AnnotationFuncs")
+library(AnnotationFuncs)
+library(org.Hs.eg.db)
+library(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+library(ggplot2)
+library(gridExtra)
+library(knitr)
+library(dplyr)
+library(kableExtra)
+
+anno = getAnnotation(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+anno = data.frame(anno)
+```
+
+# loading DMRs and 
+```{r,warning=FALSE,message=FALSE,eval=FALSE}
+dmr = read.csv('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_results_all.csv')
+
+```
+
+```{r, echo = F}
+dmr %>% kable() %>% kable_styling(font_size = 10) 
+```
+
+## Annotating DMRs
+
+```{r,warning=FALSE,message=FALSE,eval=FALSE}
+
+# creating list of genes
+txdb_hg19 = TxDb.Hsapiens.UCSC.hg19.knownGene
+genes(txdb_hg19)
+
+genes <- annotateTranscripts(TxDb.Hsapiens.UCSC.hg19.knownGene)
+g <- genes(TxDb.Hsapiens.UCSC.hg19.knownGene, single.strand.genes.only=F)
+
+
+# Annotating DMR with gene ID
+dmrDf = data.frame(matrix(ncol = 13))
+colnames(dmrDf) = c("seqnames", "start", "end", "width", "strand", "names", "p", "length", "fdr", "sidak", "nprobe", "group", 'gene_id')
+dmr = read.csv('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_results_all.csv')
+dmr$chr = paste0('chr', dmr$chr)
+for (i in 1:nrow(dmr)){
+	dmrTemp = makeGRangesFromDataFrame(dmr[i,], keep.extra.columns=T, seqnames.field = 'chr')
+	tabTemp = annotateGRfromGR(dmrTemp, g)
+	tabTemp = data.frame(tabTemp)
+	if (ncol(tabTemp) == 12){
+		tabTemp$gene_id = NA
+	}
+	dmrDf = rbind(dmrDf, data.frame(tabTemp))
+}
+
+# Adding gene name
+dmrDf$geneName = NA
+for (i in 1:nrow(dmrDf)){
+	print(i)
+	if (!is.na(dmrDf$gene_id[i])){
+		ids = strsplit(dmrDf$gene_id[i], ',')[[1]]
+		names = unlist(translate(ids, org.Hs.egSYMBOL))
+		if (length(names) > 1){
+			names = paste(names, collapse=',')
+			dmrDf$geneName[i] = names
+		} else {
+			dmrDf$geneName[i] = names
+		}
+	}
+}
+
+write.csv(dmrDf, '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_results_all_genes.csv')
+```
+
+
+## Distribution of genes
+
+```{r,warning=FALSE,message=FALSE,eval=FALSE}
+
+dim(anno)
+# 485512     33
+
+# Dropping CpGs in annotation that were not included in EWAS
+load("/Users/annebozack/Box/NIEHS-R01 ONES/Methylation Data/CordBlood_ComBat_Betas_Mvlas_filteredPorbes_metalAnalysis.RData")
+
+cpgs = rownames(ComBat.Mvalues.Metals)
+
+rm(ComBat.Mvalues.Metals, ComBat.Betas.Metals)
+gc()
+
+anno = anno[rownames(anno) %in% cpgs,]
+dim(anno)
+# 394460     33
+
+anno = anno[,c(4,24)]
+
+# List of all genes
+genes = c()
+for (i in 1:nrow(anno)){
+	genes = c(genes, unique(unlist(strsplit(anno$UCSC_RefGene_Name[i], ';'))))
+}
+
+genes = unique(genes)
+
+length(genes)
+# 19867
+
+
+# Dataframe with genes and coverage
+dfGenes = data.frame(genes = genes, n = 0)
+for (i in 1:nrow(anno)){
+	print(i)
+	cpgGenes = unique(unlist(strsplit(anno$UCSC_RefGene_Name[i], ';')))
+	if (length(cpgGenes) > 0){
+		for (j in 1:length(cpgGenes)){
+			dfGenes$n[dfGenes$genes == cpgGenes[j]] = dfGenes$n[dfGenes$genes == cpgGenes[j]] + 1
+		}
+	}
+}
+
+range(dfGenes$n)
+# 1 1022
+
+
+# Plotting only genes with < 200 CpGs
+table(dfGenes$n > 500)
+# FALSE  TRUE 
+# 19836    3
+
+# Adding lines to indicate DMR genes in HLA region
+HLAgenes = c('TNXB', 'RNF39', 'B3GALT4', 'TAPBP', 'GTF2H4', 'VARS2', 'NOTCH4')
+HLAn = dfGenes$n[dfGenes$genes %in% HLAgenes]
+HLAcolor = c('TNXB' = '#67001f', 'RNF39' = '#b2182b', 'B3GALT4' = '#d6604d', 'TAPBP' = '#92c5de', 'GTF2H4' = '#4393c3', 'VARS2' = '#2166ac', 'NOTCH4' = '#053061')
+
+ggplot(dfGenes[dfGenes$n < 500,], aes(n)) + geom_histogram(color = 'black', alpha = 0.3, binwidth = 5) + theme_classic() + geom_vline(aes(xintercept = HLAn[1], color = 'TNXB'), size = 0.3) + geom_vline(aes(xintercept = HLAn[2], color = 'RNF39'), size = 0.3) + geom_vline(aes(xintercept = HLAn[3], color = 'B3GALT4'), size = 0.3) + geom_vline(aes(xintercept = HLAn[4], color = 'TAPBP'), size = 0.3) + geom_vline(aes(xintercept = HLAn[5], color = 'GTF2H4'), size = 0.3) + geom_vline(aes(xintercept = HLAn[6], color = 'VARS2'), size = 0.3) + geom_vline(aes(xintercept = HLAn[7], color = 'NOTCH4'), size = 0.3) + scale_color_manual(values = HLAcolor) + labs(x = "Coverage per gene", y = "Count", color = "Legend") 
+
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/geneCoverage_HLA.png', type = "png", dpi = 300)
+```
+
+```{r, out.width = '100%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/geneCoverage_HLA.png")
+```
+
+
+
+
+
+
+
+
+
+
