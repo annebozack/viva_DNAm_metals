@@ -109,12 +109,12 @@ fDatselect <- fDat[fDat$perc.detected > 95,]
 dim(fDatselect)
 # 467471      3
 
-# subset betasAge3 to fDatselect probes
+# subset betasAge7 to fDatselect probes
 betasAge7use <- betasAge7[rownames(betasAge7) %in% fDatselect$site,]
 dim(betasAge7) 
 # 470870   460
 
-# match fDat and betasAge3 based on CpG
+# match fDat and betasAge7 based on CpG
 fDatselect<- fDatselect[match(fDatselect$site, rownames(betasAge7use)),]
 
 identical(fDatselect$site, rownames(betasAge7use))
