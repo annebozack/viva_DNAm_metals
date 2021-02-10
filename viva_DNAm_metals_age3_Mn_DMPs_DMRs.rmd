@@ -1,0 +1,639 @@
+---
+title: "Project Viva: age 3 DNAm and metals EWAS"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+
+## Required Packages and functions
+
+```{r library,warning=FALSE,message=FALSE,eval=FALSE}
+# libraries
+library(sas7bdat)
+library(sva)
+library(reshape)
+library(ggplot2)
+library(gridExtra)
+library(knitr)
+library(dplyr)
+library(kableExtra)
+library(tidyverse)
+library(minfi)
+library(stringr)
+library(limma)
+library(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+library(minfi)
+library(DMRcate)
+library(UpSetR)
+library(reshape)
+library(corrplot)
+library(factoextra)
+library(ENmix)
+
+# loading annotation
+anno = getAnnotation(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+anno = data.frame(anno)
+
+# functions
+# manhattan polt
+manhattan = function(probe, region, FDR = FALSE, annotate = NULL, title = NULL){
+	# chromosome as numeric
+	probe$chr = as.numeric(gsub("chr", "", probe$chr))
+	# dataframes with common columns
+	probe = data.frame(name = probe$cpg, p = probe$P.Value, fdr = probe$adj.P.Val, bonf = probe$adj.P.Val.bonf, chr = probe$chr, pos = probe$pos, type = 'position', dmp_sig = NA, color = NA)
+	region_df = data.frame(name = as.character(seq(1:nrow(region))), p = NA, fdr = NA, bonf = NA, chr = region$chr, pos = region$start, type = 'region', dmp_sig = NA, color = NA, size = NA)
+	# indicating probes within regions
+	for (i in 1:length(region$chr)){
+		probe$dmp_sig[(probe$chr == region$chr[i]) & (probe$pos >= region$start[i]) & (probe$pos <= region$end[i])] = 1
+	}
+	# variable for point color
+	probe$color[probe$dmp_sig == 1] = 50
+	probe$color[probe$fdr < 0.05] = 100
+	probe$color[is.na(probe$color)] = probe$chr[is.na(probe$color)]
+	# variable for point size
+	probe$size[probe$color == 50 | probe$color == 100] = 1
+	probe$size[is.na(probe$size)] = 0.5
+	# combine dataframes
+	df_comb = rbind(probe, region_df)
+	# dataset for plotting
+		don = df_comb %>% 
+	  		# Compute chromosome size
+				group_by(chr) %>% summarise(chr_len=as.numeric(max(pos))) %>% 
+	  		# Calculate cumulative position of each chromosome
+	 			mutate(tot=cumsum(chr_len)-chr_len) %>% dplyr::select(-chr_len) %>%
+	  		# Add this info to the initial dataset
+	  			left_join(df_comb, ., by=c("chr"="chr")) %>%
+	  		# Add a cumulative position of each site
+				arrange(chr, pos) %>% mutate(poscum=pos+tot) # %>%
+	 		# Prepare X axis
+				axisdf = don %>% group_by(chr) %>% summarize(center=(max(poscum) + min(poscum))/2)
+		don = merge(don, df_comb, on='name', all.x=T)
+		don = don[order(don$size),]
+		don_position = don[don$type == 'position',]
+		don_region = don[don$type == 'region',]
+	
+		colors = c("#969696", "#737373", "#969696", "#737373", "#969696", "#737373", "#969696", "#737373", "#969696", "#737373", "#969696", "#737373", "#969696", "#737373", "#969696", "#737373", "#969696", "#737373", "#969696", "#737373", "#969696", "#737373", '#2166ac', 'black')
+	
+	manhattan = ggplot(don_position, aes(x=poscum, y=-log10(p))) +
+	geom_point(aes(color=as.factor(color)), size= don_position$size, alpha = don_position$size) + scale_color_manual(values = colors) +
+    # p-value cutoffs
+	geom_hline(yintercept=-log10(0.05/nrow(don_position)), colour = '#AB3428', size=.2, alpha = 0.5) +
+	geom_vline(xintercept= don_region$poscum, colour = '#4393c3', size=.2) +
+	# custom axes:
+	scale_x_continuous(expand = c(0.005, 0.005), limits = c(min(don_position$poscum), max(don_position$poscum)), label = axisdf$chr, breaks= axisdf$center) +
+	scale_y_continuous(expand = c(0, 0), limits = c(0, (max(-log10(don_position$p)) + 0.5)), breaks = seq(from = 0, to = (max(-log10(don_position$p)) + 0.5), by = 1)) +
+	# Custom theme:
+    theme_minimal() + theme( 
+	legend.position="none", panel.border = element_blank(), panel.grid.minor.y = element_blank(), panel.grid.major.x = element_blank(), panel.grid.minor.x = element_blank(), panel.grid.major.y = element_blank(), text = element_text(size = 7.5)) + 
+    labs(y=expression(-log[10](italic(p))), x='Chromosome') 
+    if (!is.null(title)){
+    	manhattan = manhattan + labs(title = title)
+    }
+    if (FDR == TRUE){
+    	manhattan = manhattan + geom_hline(yintercept=-log10(max(don_position$p[don_position$fdr < 0.05])), colour='#AB3428', size=.2, alpha = 0.5, linetype = "dashed")
+    } 
+    if (!is.null(annotate)){
+		manhattan = manhattan + annotate("text", x = max(don_position$poscum)*0.05, y = max(-log10(don_position$p)), label = annotate, size = 4)
+	}
+	return(manhattan)
+}
+# lambda
+lambda = function(p) median(qchisq(p, df=1, lower.tail=FALSE), na.rm=TRUE) / qchisq(0.5, df=1)
+gg_qqplot = function(pvector){
+	l = round(lambda(pvector), 3)
+	o = -log10(sort(pvector, decreasing = FALSE))
+	e = -log10(ppoints(length(pvector)))
+	df = data.frame(o = o, e = e)
+	ggplot(df, aes(e, o)) + geom_point(alpha = 0.5, size = 1) + geom_abline(intercept = 0, slope = 1, color = '#AB3428') + labs(y = expression(Observed ~ ~-log[10](italic(p))), x = expression(Expected ~ ~-log[10](italic(p)))) + theme_classic() + annotate("text", x = 1, y = 5, label = paste0('lambda = ', l))
+}
+# volcano
+volcano = function(probe, type = 'DMP'){
+	if (type == 'DMP'){
+		volcano = ggplot(probe, aes(x=logFC, y  = -log10(P.Value))) + 
+		geom_point(size = 0.8, alpha=0.4) + 
+		geom_hline(aes(yintercept = -log10(0.05/nrow(probe)),linetype = 'Bonferroni threshold'), color = "#AB3428", size = 0.5) + 
+	#	geom_hline(aes(yintercept = -log10(max(P.Value[adj.P.Val < 0.05])),linetype = 'FDR threshold'), color = "#AB3428", size = 0.3) + 
+		scale_linetype_manual(name = '', values = c(1,2), guide = guide_legend(override.aes = list(color = c("#AB3428", "#AB3428")))) + theme_minimal() + 
+		labs(y=expression(-log[10]*"(P-value)"), x='Effect estimate') + theme(panel.grid.minor.y = element_blank()) + theme(text = element_text(size=8)) + 
+		theme(legend.position="none") + scale_y_continuous(expand = c(0, 0)) + theme(panel.grid.minor.x = element_blank(), panel.grid.major.y = element_line(size = 0.2, color = 'gray65'), panel.grid.major.x = element_line(size = 0.2, color = 'gray65'))
+		return(volcano)
+	} else if (type == 'DVP'){
+		volcano = ggplot(probe, aes(x= DiffLevene, y  = -log10(P.Value))) + 
+		geom_point(size = 0.8, alpha=0.4) + 
+		geom_hline(aes(yintercept = -log10(0.05/nrow(probe)),linetype = 'Bonferroni threshold'), color = "#AB3428", size = 0.5) + 
+		geom_hline(aes(yintercept = -log10(max(P.Value[Adj.P.Value < 0.05])),linetype = 'FDR threshold'), color = "#AB3428", size = 0.3) + 
+		scale_linetype_manual(name = '', values = c(1,2), guide = guide_legend(override.aes = list(color = c("#AB3428", "#AB3428")))) + theme_minimal() + 
+		labs(y=expression(-log[10]*"(P-value)"), x='Effect estimate') + theme(panel.grid.minor.y = element_blank()) + theme(text = element_text(size=8)) + 
+		theme(legend.position="none") + scale_y_continuous(expand = c(0, 0)) + theme(panel.grid.minor.x = element_blank(), panel.grid.major.y = element_line(size = 0.2, color = 'gray65'), panel.grid.major.x = element_line(size = 0.2, color = 'gray65'))
+		return(volcano)
+	}
+}
+# DMP analysis
+run_DMP <- function(mvals, design){
+  # fit model
+  l_fit <- limma::lmFit(object = mvals, design = design)
+  
+  # extract standard errors
+  std_err <- l_fit$stdev.unscaled[,2]*l_fit$sigma
+  std_err_df <- data.frame(std_err)
+  std_err_df$cpg <- rownames(std_err_df)
+  
+  e_fit <- limma::eBayes(l_fit, robust = TRUE)
+  
+  # extract results and add Bonferroni correction
+  p_top <- limma::topTable(e_fit, adjust = "BH", coef = 2, num = Inf, confint = TRUE)
+  p_top <- p_top[order(p_top$P.Value), , drop = FALSE]
+  p_top$adj.P.Val.bonf <- topTable(e_fit, adjust="bonferroni", coef=2, number = Inf)$adj.P.Val
+  
+  # merge results and standard errors
+  p_top$cpg <- rownames(p_top)
+  p_top <- merge(p_top, std_err_df, by = 'cpg')
+  rownames(p_top) <- p_top$cpg
+  
+  return(p_top)
+}
+# Combp
+acf.table<-function(x,loc,dist.cutoff){
+  flag=TRUE; lag=1; result=NULL
+  while(flag){
+    x1=head(x,-lag); x2=tail(x,-lag); dist=diff(loc,lag=lag)
+    index=(dist<dist.cutoff)  
+    if(all(!index)){flag=FALSE}else{
+      result=rbind(result,data.frame(x1=x1[index],x2=x2[index],dist=dist[index]))
+    lag=lag+1
+    }
+  }
+  return(result)  
+}
+get.acf<-function(data,dist.cutoff,bin.size){
+  temp<-NULL
+  for (chr in unique(as.vector(data$chr))){
+    y<-data[as.vector(data$chr)==chr,]; y<-y[order(y$end),]
+    temp<-rbind(temp,acf.table(y$p,y$end,dist.cutoff))
+  }
+  bin.label<-findInterval(temp$dist,seq(bin.size,dist.cutoff,bin.size))
+  temp.stouffer<-by(temp,bin.label,FUN=function(x){cor.test(qnorm(x$x1),
+               qnorm(x$x2),alternative="greater")},simplify=FALSE)
+  cor.stouffer<-sapply(temp.stouffer,function(x){x$estimate})
+  p.stouffer<-sapply(temp.stouffer,function(x){x$p.value})
+  if (any(p.stouffer>0.05)){
+    index=min(which(p.stouffer>0.05))
+    cor.stouffer[index:length(cor.stouffer)]=0
+  }
+  return(cor.stouffer)
+}
+regplot<-function(ref,sig,extend=2000,outf="region_plot.pdf"){
+  sig=sig[order(sig[,"chr"],sig[,"start"]),]
+  ref=ref[order(ref[,"chr"],ref[,"start"]),]
+  pdf(outf)
+  for(i in 1:nrow(sig)){
+    chr=as.vector(sig$chr[i])
+    pos1=sig$start[i]
+    pos2=sig$end[i]
+    subset=ref[as.vector(ref$chr)==chr & ref$start>=(pos1-extend) & ref$start<=(pos2+extend),]
+    subset$cor="black"
+    subset$cor[subset$start>=pos1 &subset$start<=pos2]="red"
+    ylab=bquote('-log'['10']*'(P) value')
+    plot(subset$start,-log10(subset$p),col=subset$cor,pch=20,xlim=c(pos1-extend,
+          pos2+extend),xlab="Chromosome position",ylab=ylab)
+  }
+  dev.off()
+}
+# comb_p-like method
+combp2<-function(data,dist.cutoff=1000,bin.size=310,seed=0.01,
+               region_plot=TRUE,mht_plot=TRUE,nCores=10,verbose=TRUE){
+  if(nCores>detectCores()){nCores=detectCores()}
+  data=as.data.frame(data)
+  data$start=as.numeric(as.vector(data$start))
+  data$end=as.numeric(as.vector(data$end))
+  data=data[!is.na(data$start) & !is.na(data$end),]
+  data$p=as.numeric(as.vector(data$p))
+  acf<-get.acf(data,dist.cutoff,bin.size)
+  if(verbose){
+    cat("P value correlations:\n")
+    bin=seq(bin.size,dist.cutoff,bin.size)
+    if(!(dist.cutoff%%bin.size==0)){bin=c(bin,dist.cutoff)}
+    print(data.frame(bin=bin,acf=acf))
+  }
+  result<-mclapply(unique(as.vector(data$chr)), function(chr){
+    y=data[as.vector(data$chr)==chr,]; y=y[order(y$end),]
+    pos=y$end; p=qnorm(y$p)
+    temp=sapply(pos,function(i){
+      index.i=(abs(pos-i)<bin.size);
+      if (sum(index.i)>1){  
+        int<-findInterval(c(dist(pos[index.i])),c(bin.size,2*bin.size))
+        sd<-sqrt(sum(acf[int+1])*2+sum(index.i))
+        return(pnorm(sum(p[index.i]),mean=0,sd=sd))
+      }else{return(y$p[index.i])}
+    })
+    return(data.frame(chr,start=pos,end=pos,s.p=temp))
+  },mc.cores=nCores)
+  result <- do.call("rbind", result)
+  names(result)=c("chr","start","end","s.p")
+  result=result[p.adjust(result$s.p,method="fdr")<seed,]
+  result.fdr=NULL
+  if (nrow(result)>0){
+    for (chr in unique(result$"chr")){
+      y=data[as.vector(data$chr)==chr,]; y=y[order(y$end),]
+      pos=y$end; p=qnorm(y$p)
+      result.chr=result[result$"chr"==chr,]
+      a=IRanges::IRanges(start=result.chr$start,end=result.chr$end)
+      b=IRanges::reduce(a,min.gapwidth=dist.cutoff)
+      start=IRanges::start(b); end=IRanges::end(b)
+      region.max<-max(IRanges::width(b))
+      temp=sapply(1:length(b),function(i){
+        index.i=(pos>=start[i] & pos<=end[i]);
+        if (sum(index.i)>1){  
+          int<-findInterval(c(dist(pos[index.i])),
+              seq(bin.size,region.max+bin.size,bin.size))
+          sd<-sqrt(sum(ifelse(int<length(acf),
+              acf[int+1],0))*2+sum(index.i))
+          return(pnorm(sum(p[index.i]),mean=0,sd=sd))
+        }else{return(y$p[index.i])}
+      })
+      result.fdr=rbind(result.fdr,data.frame(chr,start,end,p=temp))
+    }
+    
+    result.fdr$length = (result.fdr$end - result.fdr$start) + 1
+    result.fdr = result.fdr[result.fdr$length > 1,]
+    ##### BH FDR correction and Sidak correction
+    result.fdr$fdr=p.adjust(result.fdr$p,method="fdr")
+    result.fdr$sidak=(1-(1-result.fdr$p)^(nrow(data)/(result.fdr$end-result.fdr$start+1)))
+    result.fdr<-result.fdr[order(result.fdr$p),]
+    ##### use 0-coordinate
+    result.fdr$start=(result.fdr$start-1)
+  }
+  if(is.null(result.fdr)){cat("Number of identified DMR:  0\n")}else{
+    ndmr=nrow(result.fdr)
+  result.fdr$start=as.numeric(as.vector(result.fdr$start))
+  result.fdr$end=as.numeric(as.vector(result.fdr$end))
+  result.fdr$chr=factor(result.fdr$chr)
+    cat("Number of DMRs identified:  ",ndmr, "\n")
+    if(region_plot){
+      cat("Drawing regional plot: region_plot.pdf ...\n")
+      sig=result.fdr
+      regplot(ref=data,sig)
+    }
+  if(mht_plot){
+    cat("Drawing manhattan plot: mht.jpg ...\n")
+    set2=NULL
+    for(i in 1:ndmr){
+        set2=c(set2,as.vector(data$probe[as.vector(data$chr)==as.vector(result.fdr$chr[i])
+           & data$start>=result.fdr$start[i] & data$start<=result.fdr$end[i]]))
+    }
+  mhtplot(probe=data$probe,chr=as.vector(data$chr),pos=data$start,p=data$p,color="gray",markprobe=set2)
+  }
+  #number of probes within eath DMR
+  result.fdr$nprobe=NA
+  for(i in 1:nrow(result.fdr)){
+result.fdr$nprobe[i]=nrow(data[as.vector(data$chr)==as.vector(result.fdr$chr[i])
+& data$start>=result.fdr$start[i] & data$end<=result.fdr$end[i],])
+}
+  write.table(result.fdr,"resu_combp.csv",row.names=FALSE,sep=",")
+  }
+}
+```
+
+
+## Load DNAm and pheno data
+
+```{r data,warning=FALSE,message=FALSE,eval= FALSE}
+load("/Users/annebozack/Box/NIEHS-R01 ONES/Methylation Data/Age3Blood_ComBat_Betas_Mvlas_filteredPorbes_metalAnalaysis.RData")
+
+dim(pDatAge3Metal)
+# 92 164
+
+dim(ComBat.Mvalues.Metals)
+# 394460    92
+
+rownames(pDatAge3Metal) = pDatAge3Metal$samplename
+```
+
+
+## EWAS
+
+### Mn
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+# Unadjusted
+modUnadj = model.matrix(~ pDatAge3Metal$Mn_log2)
+
+DMP_Mn_unadj <- run_DMP(mvals = ComBat.Mvalues.Metals, design = modUnadj)
+
+table(DMP_Mn_unadj$P.Value < 0.05)
+ #  FALSE   TRUE 
+# 383792  10668 
+
+table(DMP_Mn_unadj$adj.P.Val < 0.05)
+ # FALSE 
+# 394460
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdj = model.matrix(~ Mn_log2 + female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_S_3y + CD4T_S_3y + CD8T_S_3y + Neu_S_3y + Mono_S_3y + NK_S_3y, data = pDatAge3Metal)
+
+dim(modAdj)
+# 92  20
+
+# M-values for comoplete cases
+ComBat.Mvalues.noMissAdj = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdj)]
+ComBat.Mvalues.noMissAdj <- ComBat.Mvalues.noMissAdj[,match(rownames(modAdj), colnames(ComBat.Mvalues.noMissAdj))]
+all(rownames(modAdj)==colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+identical(rownames(modAdj),colnames(ComBat.Mvalues.noMissAdj))
+# TRUE 
+
+DMP_Mn_Adj <- run_DMP(mvals = ComBat.Mvalues.noMissAdj, design = modAdj)
+
+table(DMP_Mn_Adj$P.Value < 0.05)
+#  FALSE   TRUE 
+# 377840  16620
+
+table(DMP_Mn_Adj$adj.P.Val < 0.05)
+#  FALSE  
+# 394460  
+
+# comparison to cord blood DMP
+DMP_Mn_Adj[DMP_Mn_Adj$cpg == 'cg02042823',]
+                  # cpg     logFC       CI.L      CI.R  AveExpr         t   P.Value adj.P.Val         B adj.P.Val.bonf   std_err
+# cg02042823 cg02042823 0.1038972 -0.3086843 0.5164788 6.158393 0.5016816 0.6173656 0.9998739 -4.955298              1 0.2103774
+
+gg_qqplot(DMP_Mn_Adj$P.Value)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Mn_adj_age3_020821.png', type = "png", dpi = 300)
+
+volcano(DMP_Mn_Adj)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Mn_adj_age3_020821.png', type = "png", dpi = 300)
+
+# combp
+DMP_Mn_Adj = cbind(DMP_Mn_Adj, anno[,'chr'][match(rownames(DMP_Mn_Adj), rownames(anno))])
+DMP_Mn_Adj = cbind(DMP_Mn_Adj, anno[,'pos'][match(rownames(DMP_Mn_Adj), rownames(anno))])
+DMP_Mn_Adj$end = DMP_Mn_Adj[,13]
+DMP_Mn_Adj_p = DMP_Mn_Adj[,c(12,13,14,7,1)]
+colnames(DMP_Mn_Adj_p) = c( "chr","start", "end","p", "probe")
+DMP_Mn_Adj_p$chr = as.numeric(gsub("chr", "", DMP_Mn_Adj_p$chr))
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Mn_age3')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Mn_age3')
+combp2(DMP_Mn_Adj_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   1
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 6	31691197	31691717	7.38E-10	520	7.38E-10	5.60E-07	16
+
+# manhattan plot
+region = read.csv('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Mn_age3/resu_combp.csv')
+probe = DMP_Mn_Adj
+colnames(probe)[c(12,13)] = c('chr', 'pos')
+quartz(width = 5.5, height = 3)
+manhattan(probe, region, FDR = T)
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Mn_adj_age3_020821.png', type = "png", dpi = 300)
+
+rm(DMP_Mn_Adj_p, DMP_Mn_Adj);gc()
+
+
+# EWAS using Beta values
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdj = model.matrix(~ Mn_log2 + female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_S_3y + CD4T_S_3y + CD8T_S_3y + Neu_S_3y + Mono_S_3y + NK_S_3y, data = pDatAge3Metal)
+
+dim(modAdj)
+# 92  20
+
+# Beta-values for comoplete cases
+ComBat.Betas.noMissAdj = ComBat.Betas.Metals[,colnames(ComBat.Betas.Metals) %in% rownames(modAdj)]
+ComBat.Betas.noMissAdj <- ComBat.Betas.noMissAdj[,match(rownames(modAdj), colnames(ComBat.Betas.noMissAdj))]
+all(rownames(modAdj)==colnames(ComBat.Betas.noMissAdj))
+# TRUE 
+identical(rownames(modAdj),colnames(ComBat.Betas.noMissAdj))
+# TRUE 
+
+DMP_Mn_Adj_betas <- run_DMP(mvals = ComBat.Betas.noMissAdj, design = modAdj)
+
+table(DMP_Mn_Adj_betas$P.Value < 0.05)
+# FALSE   TRUE 
+# 376188  18272
+
+table(DMP_Mn_Adj_betas$adj.P.Val < 0.05)
+ # FALSE   
+# 394460   
+
+DMP_Mn_Adj_betas[DMP_Mn_Adj_betas$cpg == 'cg02042823',]
+                  # cpg      logFC         CI.L       CI.R   AveExpr        t   P.Value  adj.P.Val         B adj.P.Val.bonf    std_err
+# cg02042823 cg02042823 0.01523989 -0.009879971 0.04035974 0.9808779 1.209183 0.2305054  0.9999959 -7.911376              1 0.01267142
+
+
+rm(DMP_Mn_Adj_betas, ComBat.Betas.noMissAdj);gc()
+
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/QQ_DMP_Mn_adj_age7_020821.png")
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/volcano_DMP_Mn_adj_age7_020821.png")
+```
+
+```{r, out.width = '100%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/markdownplots/manhattan_DMP_Mn_adj_age7_020821.png")
+```
+
+#### Mn, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+pDatAge3MetalF = pDatAge3Metal[pDatAge3Metal$female_d == 1,]
+pDatAge3MetalF$race_child2 = as.factor(as.numeric(pDatAge3MetalF$race_child2))
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjF = model.matrix(~ Mn_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_S_3y + CD4T_S_3y + CD8T_S_3y + Neu_S_3y + Mono_S_3y + NK_S_3y, data = pDatAge3MetalF)
+
+dim(modAdjF)
+# 39  19
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjF = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjF)]
+ComBat.Mvalues.noMissAdjF <- ComBat.Mvalues.noMissAdjF[,match(rownames(modAdjF), colnames(ComBat.Mvalues.noMissAdjF))]
+all(rownames(modAdjF)==colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+identical(rownames(modAdjF),colnames(ComBat.Mvalues.noMissAdjF))
+# TRUE 
+
+DMP_Mn_AdjF <- run_DMP(mvals = ComBat.Mvalues.noMissAdjF, design = modAdjF)
+
+table(DMP_Mn_AdjF$P.Value < 0.05)
+#  FALSE   TRUE 
+# 382097  12363 
+
+table(DMP_Mn_AdjF$adj.P.Val < 0.05)
+ #  FALSE   
+# 394460     
+
+# comparison to cord blood DMPs
+DMP_Mn_AdjF[DMP_Mn_AdjF$cpg %in% c('cg00954161', 'cg01744822', 'cg08904630', 'cg11161853', 'cg15712310', 'cg19908812', 'cg22799518', 'cg23903787', 'cg26462130'),]
+
+                  # cpg        logFC        CI.L       CI.R    AveExpr          t    P.Value adj.P.Val         B adj.P.Val.bonf   std_err
+# cg00954161 cg00954161  0.293876788 -0.81735271 1.40510628  5.8165841  0.5461011 0.59008593 0.9999353 -4.689897              1 0.5686257
+# cg01744822 cg01744822 -0.258597264 -0.67074685 0.15355233 -3.6680216 -1.2953922 0.20758327 0.9999353 -4.536722              1 0.2017117
+# cg08904630 cg08904630 -0.363135233 -0.77488581 0.04861535  5.5008049 -1.8208122 0.08120497 0.9999353 -4.373070              1 0.2014960
+# cg11161853 cg11161853 -0.119122338 -0.38236061 0.14411593 -5.3800180 -0.9339022 0.35964347 0.9999353 -4.624346              1 0.1172769
+# cg15712310 cg15712310 -0.136624211 -0.43096530 0.15771688 -0.9502219 -0.9579305 0.34763622 0.9999353 -4.619268              1 0.1356972
+# cg19908812 cg19908812  0.355555958  0.04648075 0.66463117 -5.4286267  2.3741109 0.02592395 0.9999353 -4.168675              1 0.1442313
+# cg22799518 cg22799518 -0.121410570 -0.55036424 0.30754310  6.4028676 -0.5844383 0.56442756 0.9999353 -4.684851              1 0.2107417
+# cg23903787 cg23903787 -0.003689829 -0.37324746 0.36586781  3.0326185 -0.0206066 0.98372980 0.9999353 -4.725019              1 0.1784078
+# cg26462130 cg26462130  0.131302871 -0.61292605 0.87553179  6.4090558  0.3643168 0.71884246 0.9999353 -4.709320              1 0.3775979
+
+lambda(DMP_Mn_AdjF$P.Value)
+# 0.908391
+
+# combp
+DMP_Mn_AdjF = cbind(DMP_Mn_AdjF, anno[,'chr'][match(rownames(DMP_Mn_AdjF), rownames(anno))])
+DMP_Mn_AdjF = cbind(DMP_Mn_AdjF, anno[,'pos'][match(rownames(DMP_Mn_AdjF), rownames(anno))])
+DMP_Mn_AdjF$end = DMP_Mn_AdjF[,13]
+DMP_Mn_AdjF_p = DMP_Mn_AdjF[,c(12,13,14,7,1)]
+colnames(DMP_Mn_AdjF_p) = c( "chr","start", "end","p", "probe")
+DMP_Mn_AdjF_p$chr = as.numeric(gsub("chr", "", DMP_Mn_AdjF_p$chr))
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Mn_F_age3')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Mn_F_age3')
+
+combp2(DMP_Mn_AdjF_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   1
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 1	75198817	75199117	1.85E-09	300	1.85E-09	2.44E-06	6
+
+rm(DMP_Mn_AdjF_p, DMP_Mn_AdjF);gc()
+
+
+# EWAS using Beta values
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjF = model.matrix(~ Mn_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_S_3y + CD4T_S_3y + CD8T_S_3y + Neu_S_3y + Mono_S_3y + NK_S_3y, data = pDatAge3MetalF)
+
+# Beta-values for comoplete cases
+ComBat.Betas.noMissAdjF = ComBat.Betas.Metals[,colnames(ComBat.Betas.Metals) %in% rownames(modAdjF)]
+ComBat.Betas.noMissAdjF <- ComBat.Betas.noMissAdjF[,match(rownames(modAdjF), colnames(ComBat.Betas.noMissAdjF))]
+all(rownames(modAdjF)==colnames(ComBat.Betas.noMissAdjF))
+# TRUE 
+identical(rownames(modAdjF),colnames(ComBat.Betas.noMissAdjF))
+# TRUE 
+
+DMP_Mn_Adj_betasF <- run_DMP(mvals = ComBat.Betas.noMissAdjF, design = modAdjF)
+
+table(DMP_Mn_Adj_betasF$P.Value < 0.05)
+#  FALSE   TRUE 
+# 381304  13156 
+
+table(DMP_Mn_Adj_betasF$adj.P.Val < 0.05)
+ # FALSE   
+# 394460   
+
+DMP_Mn_Adj_betasF[DMP_Mn_Adj_betasF$cpg %in% c('cg00954161', 'cg01744822', 'cg08904630', 'cg11161853', 'cg15712310', 'cg19908812', 'cg22799518', 'cg23903787', 'cg26462130'),]
+
+                  # cpg         logFC          CI.L         CI.R    AveExpr           t    P.Value adj.P.Val         B adj.P.Val.bonf     std_err
+# cg00954161 cg00954161  0.0112397090 -0.0765101692 9.898959e-02 0.97154512  0.26578661 0.79290209 0.9999459 -7.850396              1 0.043070800
+# cg01744822 cg01744822 -0.0113573918 -0.0318926437 9.177860e-03 0.07463988 -1.14763327 0.26356440 0.9999459 -7.219439              1 0.010054991
+# cg08904630 cg08904630 -0.0063871094 -0.0127849966 1.077792e-05 0.97772883 -2.07071658 0.05035461 0.9999459 -5.842809              1 0.003053002
+# cg11161853 cg11161853 -0.0021391430 -0.0063628666 2.084581e-03 0.02366710 -1.05050283 0.30492183 0.9999459 -7.325137              1 0.001927022
+# cg15712310 cg15712310 -0.0214604561 -0.0639620550 2.104114e-02 0.34215393 -1.04775137 0.30623641 0.9999459 -7.327932              1 0.020851759
+# cg19908812 cg19908812  0.0059216665  0.0004111139 1.143222e-02 0.02368782  2.22895698 0.03637905 0.9999459 -5.549552              1 0.002599044
+# cg22799518 cg22799518 -0.0001549787 -0.0040124891 3.702532e-03 0.98758923 -0.08333316 0.93434235 0.9999459 -7.883602              1 0.001730551
+# cg23903787 cg23903787  0.0012211519 -0.0236175208 2.605982e-02 0.88913859  0.10201543 0.91967739 0.9999459 -7.881794              1 0.012172051
+# cg26462130 cg26462130  0.0006487945 -0.0089546389 1.025223e-02 0.98697813  0.14013877 0.88983027 0.9999459 -7.876978              1 0.004665332
+
+rm(DMP_Mn_Adj_betasF, ComBat.Betas.noMissAdjF);gc()
+
+```
+
+#### Mn, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+pDatAge3MetalM = pDatAge3Metal[pDatAge3Metal$female_d == 0,]
+pDatAge3Metal$race_child2 = as.factor(as.numeric(pDatAge3Metal$race_child2))
+
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjM = model.matrix(~ Mn_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_S_3y + CD4T_S_3y + CD8T_S_3y + Neu_S_3y + Mono_S_3y + NK_S_3y, data = pDatAge3MetalM)
+
+dim(modAdjM)
+# 53  19
+
+# M-values for complete cases
+ComBat.Mvalues.noMissAdjM = ComBat.Mvalues.Metals[,colnames(ComBat.Mvalues.Metals) %in% rownames(modAdjM)]
+ComBat.Mvalues.noMissAdjM <- ComBat.Mvalues.noMissAdjM[,match(rownames(modAdjM), colnames(ComBat.Mvalues.noMissAdjM))]
+all(rownames(modAdjM)==colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+identical(rownames(modAdjM),colnames(ComBat.Mvalues.noMissAdjM))
+# TRUE 
+
+DMP_Mn_AdjM <- run_DMP(mvals = ComBat.Mvalues.noMissAdjM, design = modAdjM)
+
+table(DMP_Mn_AdjM$P.Value < 0.05)
+# FALSE   TRUE 
+# 369889  24571
+
+table(DMP_Mn_AdjM$adj.P.Val < 0.05)
+ #  FALSE  
+# 394460     
+
+# comparison to cord blood DMPs
+DMP_Mn_AdjM[DMP_Mn_AdjM$cpg %in% c('cg02042823', 'cg03763518'),]
+
+                  # cpg      logFC       CI.L     CI.R    AveExpr          t   P.Value adj.P.Val         B adj.P.Val.bonf   std_err
+# cg02042823 cg02042823  0.4171259 -0.3768105 1.211062  6.1969971  1.0646716 0.2939485 0.8649568 -4.653960              1 0.4062926
+# cg03763518 cg03763518 -0.1368861 -0.4415512 0.167779 -0.9856411 -0.9104809 0.3684839 0.8850741 -4.727966              1 0.1521454
+
+lambda(DMP_Mn_AdjM$P.Value)
+# 1.239979
+
+# combp
+DMP_Mn_AdjM = cbind(DMP_Mn_AdjM, anno[,'chr'][match(rownames(DMP_Mn_AdjM), rownames(anno))])
+DMP_Mn_AdjM = cbind(DMP_Mn_AdjM, anno[,'pos'][match(rownames(DMP_Mn_AdjM), rownames(anno))])
+DMP_Mn_AdjM$end = DMP_Mn_AdjM[,13]
+DMP_Mn_AdjM_p = DMP_Mn_AdjM[,c(12,13,14,7,1)]
+colnames(DMP_Mn_AdjM_p) = c( "chr","start", "end","p", "probe")
+DMP_Mn_AdjM_p$chr = as.numeric(gsub("chr", "", DMP_Mn_AdjM_p$chr))
+
+dir.create('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Mn_M_age3')
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/combp_Mn_M_age3')
+combp2(DMP_Mn_AdjM_p, region_plot = F, mht_plot = F, seed = 0.001, verbose = T)
+
+# Number of DMRs identified:   2
+
+# chr	start	end	p	length	fdr	sidak	nprobe
+# 21	30391562	30391630	8.00E-05	68	0.000159961	0.371222283	2
+# 6	32729646	32729764	0.002543376	118	0.002543376	0.999799166	3
+
+rm(DMP_Mn_AdjM_p, DMP_Mn_AdjM);gc()
+
+# EWAS using Beta values
+# Adjusted for sex, race, GA, maternal age, maternal BMI, materal college grad, income >70k, nulliparous, smoking during pregnancy, and cell type
+modAdjM = model.matrix(~ Mn_log2 + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg + Bcell_S_3y + CD4T_S_3y + CD8T_S_3y + Neu_S_3y + Mono_S_3y + NK_S_3y, data = pDatAge3MetalM)
+
+# Beta-values for comoplete cases
+ComBat.Betas.noMissAdjM = ComBat.Betas.Metals[,colnames(ComBat.Betas.Metals) %in% rownames(modAdjM)]
+ComBat.Betas.noMissAdjM <- ComBat.Betas.noMissAdjM[,match(rownames(modAdjM), colnames(ComBat.Betas.noMissAdjM))]
+all(rownames(modAdjM)==colnames(ComBat.Betas.noMissAdjM))
+# TRUE 
+identical(rownames(modAdjM),colnames(ComBat.Betas.noMissAdjM))
+# TRUE 
+
+DMP_Mn_Adj_betasM <- run_DMP(mvals = ComBat.Betas.noMissAdjM, design = modAdjM)
+
+table(DMP_Mn_Adj_betasM$P.Value < 0.05)
+# FALSE   TRUE 
+# 366912  27548
+
+table(DMP_Mn_Adj_betasM$adj.P.Val < 0.05)
+ # FALSE   
+# 394460
+
+DMP_Mn_Adj_betasM[DMP_Mn_Adj_betasM$cpg %in% c('cg02042823', 'cg03763518'),]
+
+                  # cpg       logFC        CI.L       CI.R   AveExpr          t   P.Value adj.P.Val         B adj.P.Val.bonf    std_err
+# cg02042823 cg02042823  0.03265732 -0.02038858 0.08570321 0.9778923  1.2500726 0.2196134 0.8115854 -7.482991              1 0.02642853
+# cg03763518 cg03763518 -0.01682007 -0.06336081 0.02972066 0.3397958 -0.7338397 0.4679615 0.8952654 -7.994044              1 0.02318677
+
+
+rm(DMP_Mn_Adj_betasM, ComBat.Betas.noMissAdjM);gc()
+```
