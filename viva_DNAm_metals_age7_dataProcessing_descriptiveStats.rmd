@@ -1,0 +1,689 @@
+---
+title: "Project Viva: age 3 blood DNAm data processing and descriptive stats"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+
+## Required Packages and functions
+
+```{r,warning=FALSE,message=FALSE,eval=FALSE}
+
+library(sas7bdat)
+library(sva)
+library(reshape)
+library(ggplot2)
+library(gridExtra)
+library(knitr)
+library(dplyr)
+library(kableExtra)
+library(tidyverse)
+library(minfi)
+library(stringr)
+library(limma)
+library(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+library(UpSetR)
+library(reshape)
+library(corrplot)
+library(factoextra)
+
+anno = getAnnotation(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+anno = data.frame(anno)
+```
+
+
+## DNAm and pheno data
+
+```{r,warning=FALSE,message=FALSE,eval= FALSE}
+
+# Load datasets
+pheno = read.sas7bdat('/Users/annebozack/Box/NIEHS-R01 ONES/Phenotype Data/anne_bozack_ac_120720.sas7bdat')
+
+load("/Users/annebozack/Box/DNA Methylation Data/ProjectVivaMethylationBetas_forCPrice_2020-06-10.RData")
+
+objects()
+
+dim(pheno)
+# 2128   88
+
+dim(betas)
+# 470870   1127
+
+dim(fDat)
+# 470870      3
+
+dim(pDat)
+# 1127   20
+
+# Filter Repeats and low QA
+pDat2 <- pDat[pDat$lowQual==T & pDat$filter.gender==T & pDat$filter.geno==T & pDat$repUse==T,]
+dim(pDat2)
+# 1065   20
+
+# Dimentions [False for rows/True for columns (People/Flags)]
+dim(pDat2)==dim(pDat)
+# FALSE  TRUE
+
+# Restrict to age 7 blood 0nly
+pDatAge7 <- pDat2[pDat2$COLLECTION=="Proband Age 7",]
+dim(pDatAge7)
+# 450  20     # 120 samples 
+
+# Add pheno data
+colnames(pheno)[1] = 'alias'
+
+pDatAge7 = merge(pDatAge7, pheno, by = 'alias', all.x = T, all.y = F)
+
+# Subset the methylation data
+pDatAge7$samplename[1:5]
+colnames(betas)[1:5]
+
+betasAge7 <- betas[,colnames(betas) %in% pDatAge7$samplename]
+dim(betasAge7)
+# 470870    460
+
+pDatAge7 <- pDatAge7[match(colnames(betasAge7), pDatAge7$samplename),]
+
+identical(pDatAge7$samplename, colnames(betasAge7))
+# TRUE
+
+# Sort to ensure match
+betasAge7 <- betasAge7[,match(pDatAge7$samplename, colnames(betasAge7))]
+
+identical(pDatAge7$samplename, colnames(betasAge7))
+# TRUE
+
+all(pDatAge7$samplename==colnames(betasAge7))
+# TRUE
+
+## RowNames
+rownames(pDatAge7)= pDatAge7$samplename
+all(rownames(pDatAge7)==colnames(betasAge7))
+# TRUE
+
+# Filter Out bad probes
+## Subset fDat to only probes you want - try with 95% cutoff
+fDatselect <- fDat[fDat$perc.detected > 95,]
+dim(fDatselect)
+# 467471      3
+
+# subset betasAge7 to fDatselect probes
+betasAge7use <- betasAge7[rownames(betasAge7) %in% fDatselect$site,]
+dim(betasAge7) 
+# 470870   460
+
+# match fDat and betasAge7 based on CpG
+fDatselect<- fDatselect[match(fDatselect$site, rownames(betasAge7use)),]
+
+identical(fDatselect$site, rownames(betasAge7use))
+# TRUE
+
+all(fDatselect$site==rownames(betasAge7use))
+# TRUE
+
+dim(fDatselect)
+# 467471      3
+
+dim(betasAge7use)
+# 467471    450
+
+# check once again
+all(pDatAge7$samplename==colnames(betasAge7use))
+# TRUE
+
+# ComBat Adjust by Sample Plate
+# logit transform to M-vals
+range(betasAge7use)
+# 0.001625711 0.999672558
+
+dim(betasAge7use)
+# 467471    460
+
+Mvalues= log2(betasAge7use)-log2(1-betasAge7use)
+dim(Mvalues)
+# 467471    460
+
+# Match?
+all(pDatAge7$samplename==colnames(Mvalues))
+# TRUE
+
+identical(pDatAge7$samplename,colnames(Mvalues))
+# TRUE
+
+# Batch
+table(pDatAge7$Batch)
+# WG0006663-BCD0 WG0006664-BCD0 WG0006665-BCD0 WG0006666-BCD0 WG0006667-BCD0 WG0006668-BCD0 WG0006669-BCD0 WG0006669-BCD1 WG0006670-BCD1 WG0006671-BCD0 WG0006671-BCD1 WG0006672-BCD0 
+            # 34             35             41             37             32             41             11             24             28             14              7              7 
+# WG0006672-BCD1 WG0006673-BCD0 WG0006673-BCD1 WG0006674-BCD0 WG0006674-BCD1 WG0006676-BCD0 WG0006677-BCD0 WG0006678-BCD0 
+             # 4             14             23             10             16             32             40             10 
+
+
+# Remove unwanted data
+rm(pDat,fDat,fDatselect,betas,betasAge7,betasAge7use,pDat2);gc()
+
+
+# Filter probes
+anno$NONCPG <- 1*(substring(rownames(anno),1,2)=="ch") 
+table(anno$NONCPG)  
+# 3,091  ch/rs probes
+
+anno$SNP <- 1*(substring(rownames(anno),1,2)=="rs") # 0 rs probes
+table(anno$SNP) 
+# 0 actual SNP Data
+
+# Removing SNP associated probes with MAF>5%
+sum((anno$Probe_maf>=0.05),na.rm=T) 
+# 44683
+
+anno$Probe_r_exclude <- rep(0,dim(anno)[1])
+anno$Probe_r_exclude[anno$Probe_maf>=0.05] <-1
+
+table(anno$Probe_r_exclude)                    
+# 44,683  to exclude
+
+anno = anno[anno$Probe_r_exclude==0,]  # select MAF<5%
+dim(anno) 
+# 440829     36
+
+# SNPs at Single-Base Extension (SBE) removing if MAF>=5%
+anno$SNPatSBE <- rep(0,dim(anno)[1])
+sum((anno$SBE_maf>=0.05),na.rm=T)            
+# 3,398 SNPs at SBE
+
+anno$SNPatSBE[anno$SBE_maf>=0.05] <-1
+table(anno$SNPatSBE)     
+# 3,398 to exclude
+
+anno = anno[anno$SNPatSBE==0,] # Select non polymorphic SBE >5%
+dim(anno) 
+# 437431	37
+
+# SNPs at the actual CpG with MAF>0.05  removing MAF>=5%
+
+anno$SNPatCPG <- rep(0,dim(anno)[1])
+sum((anno$CpG_maf>=0.05),na.rm=T)            
+# 4,056 CpGs on SNPS at MAF>5%
+
+anno$SNPatCPG[anno$CpG_maf>=0.05] <-1
+table(anno$SNPatCPG) 
+# 4,056
+
+anno = anno[anno$SNPatCPG==0,]
+rownames(anno)=anno$TargetID
+dim(anno) 
+# 433375	38
+
+# Remove probes with SNPs within 10 bps of the target site
+
+# Remove Chen Probes
+Chen<-read.csv('/Users/annebozack/Box/NIEHS-R01 ONES/Methylation Data/NonSpecProbes.csv')
+dim(Chen)[1] 
+# 29,233 CpGs
+
+length(intersect(Chen$TargetID, anno$Name))
+# 23,550 overlap after cleaning
+
+# 450K minus Chen probes
+anno.Chen<-anno[!anno$Name %in% Chen$TargetID,]
+dim(anno.Chen) 
+# 409825	38
+
+table(rownames(Mvalues) %in% anno.Chen$Name)
+# FALSE   TRUE 
+# 73011 394460 
+ 
+# drop probes not in anno.Chen dataset
+Mvalues = Mvalues[rownames(Mvalues) %in% anno.Chen$Name,]
+
+dim(Mvalues)
+# 394460    460
+
+
+# run ComBat
+ComBat.Mvalues <- ComBat(dat=Mvalues, batch=pDatAge7$Batch)
+
+# convert this back to a beta scale:
+combat.beta <- (2^ComBat.Mvalues)/(2^ComBat.Mvalues + 1)
+
+range(combat.beta) 
+# 0.0003376974 0.9994327238
+
+dim(combat.beta)
+# 394460    460
+
+# Save 
+
+# Match?
+all(pDatAge7$samplename==colnames(combat.beta))
+# TRUE
+
+identical(pDatAge7$samplename,colnames(combat.beta))
+# TRUE
+
+save(ComBat.Mvalues, combat.beta, pDatAge7, file = "/Users/annebozack/Box/NIEHS-R01 ONES/Methylation Data/Age7Blood_ComBat_Betas_Mvlas_filteredPorbes.RData")
+```
+
+
+## Removing second child for diplicate family IDs
+
+```{r,warning=FALSE,message=FALSE,eval= FALSE}
+
+# no duplidate IDs
+length(unique(pDatAge7$alias))
+# 460
+
+# two duplicate family IDs
+length(unique(pDatAge7$FamilyId))
+# 456
+
+# remove second child for diplicate family IDs
+pDatAge7$FamilyId[duplicated(pDatAge7$FamilyId)]
+# "130015" "130017" "130024" "130022"
+
+pDatAge7[pDatAge7$FamilyId %in% pDatAge7$FamilyId[duplicated(pDatAge7$FamilyId)],]
+
+pDatAge7$alias[pDatAge7$FamilyId %in% pDatAge7$FamilyId[duplicated(pDatAge7$FamilyId)] & pDatAge7$parity_d == 1]
+# "122972" "120209" "124769" "126089"
+
+pDatAge7 = pDatAge7[!(pDatAge7$alias %in% c("122972", "120209", "124769", "126089")),]
+
+dim(pDatAge7)
+# 456 109
+
+ComBat.Mvalues = ComBat.Mvalues[,colnames(ComBat.Mvalues) %in% pDatAge7$samplename]
+ComBat.Mvalues = ComBat.Mvalues[,match(pDatAge7$samplename, colnames(ComBat.Mvalues))]
+dim(ComBat.Mvalues)
+# 394460    483
+
+all(pDatAge7$samplename==colnames(ComBat.Mvalues))
+# TRUE 
+identical(pDatAge7$samplename,colnames(ComBat.Mvalues))
+# TRUE
+
+combat.beta = combat.beta[,colnames(combat.beta) %in% pDatAge7$samplename]
+combat.beta = combat.beta[,match(pDatAge7$samplename, colnames(combat.beta))]
+dim(combat.beta)
+# 394460    456
+
+all(pDatAge7$samplename==colnames(combat.beta))
+# TRUE 
+identical(pDatAge7$samplename,colnames(combat.beta))
+# TRUE
+```
+
+### Remove participants with missing metal data
+
+```{r,warning=FALSE,message=FALSE,eval= FALSE, echo = F}
+
+# removing participants with missing metal data
+pDatAge7Metal = pDatAge7[!is.na(pDatAge7$Al),]
+dim(pDatAge7Metal)
+# 333 109
+
+ComBat.Mvalues.Metals = ComBat.Mvalues[,colnames(ComBat.Mvalues) %in% pDatAge7Metal$samplename]
+ComBat.Mvalues.Metals = ComBat.Mvalues.Metals[,match(pDatAge7Metal$samplename, colnames(ComBat.Mvalues.Metals))]
+dim(ComBat.Mvalues.Metals)
+# 394460    333
+
+all(pDatAge7Metal$samplename==colnames(ComBat.Mvalues.Metals))
+# TRUE 
+identical(pDatAge7Metal$samplename,colnames(ComBat.Mvalues.Metals))
+# TRUE
+
+ComBat.Betas.Metals = combat.beta[,colnames(combat.beta) %in% pDatAge7Metal$samplename]
+ComBat.Betas.Metals = ComBat.Betas.Metals[,match(pDatAge7Metal$samplename, colnames(ComBat.Betas.Metals))]
+dim(ComBat.Betas.Metals)
+# 394460    333
+
+all(pDatAge7Metal$samplename==colnames(ComBat.Betas.Metals))
+# TRUE 
+identical(pDatAge7Metal$samplename,colnames(ComBat.Betas.Metals))
+# TRUE
+
+rm(combat.beta, ComBat.Mvalues);gc()
+
+```
+
+
+## Descriptive statistics
+
+### Distribution of Beta-values
+
+```{r,warning=FALSE,message=FALSE,eval= FALSE, echo = F}
+
+beta.long = melt(ComBat.Betas.Metals)
+
+ggplot(beta.long, aes(value, color=X2)) + geom_density() + theme_minimal() + theme(legend.position = "none") + scale_color_viridis_d(alpha=0.4)
+
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/age7DNAmDist.png', type = "png", dpi = 300)
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/age7DNAmDist.png")
+```
+
+### Participant characteristics
+
+```{r,warning=FALSE,message=FALSE,eval= FALSE, echo = F}
+
+# function to summarize continuous variables
+tabMedian = function(df, vars){
+	dfDescript = data.frame(matrix(ncol = 3, nrow = length(vars)))
+	colnames(dfDescript) = c('Median', 'IQR', 'N missing')
+	rownames(dfDescript) = vars
+	for (i in 1:length(vars)){
+		dfDescript[i,] = c(round(median(df[[vars[i]]], na.rm = T), 1), paste0(round(quantile(df[[vars[i]]], na.rm=T)[2], 1), ', ', round(quantile(df[[vars[i]]], na.rm = T)[4], 1)), sum(is.na(df[[vars[i]]])))
+	}
+	return(dfDescript)
+}
+
+tab1 = tabMedian(pDatAge7Metal, c('gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'zvalue_bwt_gage_sex_d', 'b12_f1a', 'b12_wo_f1a', 'fol_wo_f1a', 'folate_f1a', 'alc_d_f1', 'fish_d_f1'))
+
+
+# function to summarize categorical variables
+tabFreq = function(df, vars){
+	varCat = c()
+	for (i in 1:length(vars)){
+		cat = c()
+		for (j in 1:length(levels(df[[vars[i]]]))){
+			cat = c(cat, paste0(vars[i], '_', levels(df[[vars[i]]])[j]))
+		}
+		varCat = c(varCat, cat)
+	}
+	dfDescript = data.frame(matrix(ncol = 3, nrow = length(varCat)))
+	colnames(dfDescript) = c('n', '%', 'N missing')
+	rownames(dfDescript) = varCat
+	
+	row = 1
+	for (i in 1:length(vars)){
+		for (j in 1:length(levels(df[[vars[i]]]))){
+			dfDescript[row,] = c(table(df[[vars[i]]])[j], round((table(df[[vars[i]]])/nrow(df))[j]*100, 1), sum(is.na(df[[vars[i]]])))
+			row = row + 1
+		}
+	}
+	return(dfDescript)
+}	
+
+pDatAge7Metal$parity_d = factor(pDatAge7Metal$parity_d)
+pDatAge7Metal$education_mom_epi_epia_d = factor(pDatAge7Metal$education_mom_epi_epia_d)
+pDatAge7Metal$coll_grad = factor(pDatAge7Metal$coll_grad)
+pDatAge7Metal$female_d = factor(pDatAge7Metal$female_d)
+pDatAge7Metal$smokpreg_final_d = factor(pDatAge7Metal$smokpreg_final_d)
+pDatAge7Metal$SMKEXP_EPQ = factor(pDatAge7Metal$SMKEXP_EPQ)
+pDatAge7Metal$smkexp_mpq = factor(pDatAge7Metal$smkexp_mpq)
+pDatAge7Metal$csection = factor(pDatAge7Metal$csection)
+pDatAge7Metal$race_child_3y_dx = factor(pDatAge7Metal$race_child_3y_dx)
+pDatAge7Metal$gt70k = factor(pDatAge7Metal$gt70k)
+
+tab2 = tabFreq(pDatAge7Metal, c('parity_d', 'education_mom_epi_epia_d', 'coll_grad', 'gt70k', 'female_d', 'smokpreg_final_d', 'SMKEXP_EPQ', 'smkexp_mpq', 'csection', 'race_child_3y_dx'))
+
+```
+
+```{r, echo = F}
+tab1 %>% kable() %>% kable_styling(font_size = 14) 
+```
+
+```{r, echo = F}
+tab2 %>% kable() %>% kable_styling(font_size = 14) 
+```
+
+### Metals
+
+#### Excluding <LOD 
+
+```{r,warning=FALSE,message=FALSE,eval= FALSE, echo = F}
+
+# function to summarize metal data
+tabMetals = function(df, vars){
+	dfMetal = data.frame(matrix(ncol = 4, nrow = length(vars)))
+	colnames(dfMetal) = c('median', 'IQR', 'n below LOD', 'n missing')
+	rownames(dfMetal) = vars
+	for (i in 1:length(vars)){
+		metal = df[vars[i]][df[,paste0(vars[i], '_comment')] == 0 & !(is.na(df[vars[i]]))]
+		dfMetal[i,] = c(round(median(metal), 1), paste0(round(quantile(metal)[2], 1), ', ', round(quantile(metal)[4], 1)), table(df[,paste0(vars[i], '_comment')] == 37)[2], sum(is.na(df[vars[i]])))
+	}
+	return(dfMetal)
+}
+
+dfMetMedian = tabMetals(pDatAge7Metal, c('Al', 'As', 'Ba', 'Cd', 'Co', 'Cr', 'Cs', 'Cu', 'Hg', 'Mg', 'Mn', 'Mo', 'Ni', 'Pb', 'Sb', 'Se', 'Sn', 'Tl', 'V', 'Zn'))
+```
+
+```{r, echo = F}
+dfMetMedian %>% kable() %>% kable_styling(font_size = 14) 
+```
+
+
+#### Replacing <LOD with LOD/sqrt(2)
+
+```{r,warning=FALSE,message=FALSE,eval= FALSE, echo = F}
+
+pDatAge7Metal$Al_lod = pDatAge7Metal$Al
+pDatAge7Metal$Al_lod[pDatAge7Metal$Al_comment == 37] = 13.3/sqrt(2)
+
+pDatAge7Metal$As_lod = pDatAge7Metal$As
+pDatAge7Metal$As_lod[pDatAge7Metal$As_comment == 37] = 0.153/sqrt(2)
+
+pDatAge7Metal$Ba_lod = pDatAge7Metal$Ba
+pDatAge7Metal$Ba_lod[pDatAge7Metal$Ba_comment == 37] = 0.412/sqrt(2)
+
+pDatAge7Metal$Cd_lod = pDatAge7Metal$Cd
+pDatAge7Metal$Cd_lod[pDatAge7Metal$Cd_comment == 37] = 0.0569/sqrt(2)
+
+pDatAge7Metal$Co_lod = pDatAge7Metal$Co
+pDatAge7Metal$Co_lod[pDatAge7Metal$Co_comment == 37] = 0.0648/sqrt(2)
+
+pDatAge7Metal$Cr_lod = pDatAge7Metal$Cr
+pDatAge7Metal$Cr_lod[pDatAge7Metal$Cr_comment == 37] = 0.685/sqrt(2)
+
+pDatAge7Metal$Cs_lod = pDatAge7Metal$Cs
+pDatAge7Metal$Cs_lod[pDatAge7Metal$Cs_comment == 37] = 0.0587/sqrt(2)
+
+pDatAge7Metal$Cu_lod = pDatAge7Metal$Cu
+pDatAge7Metal$Cu_lod[pDatAge7Metal$Cu_comment == 37] = 1.85/sqrt(2)
+
+pDatAge7Metal$Hg_lod = pDatAge7Metal$Hg
+pDatAge7Metal$Hg_lod[pDatAge7Metal$Hg_comment == 37 & !is.na(pDatAge7Metal$Hg_comment)] = 0.3/sqrt(2)
+
+pDatAge7Metal$Mg_lod = pDatAge7Metal$Mg
+pDatAge7Metal$Mg_lod[pDatAge7Metal$Mg_comment == 37] = 4.15/sqrt(2)
+
+pDatAge7Metal$Mn_lod = pDatAge7Metal$Mn
+pDatAge7Metal$Mn_lod[pDatAge7Metal$Mn_comment == 37] = 0.422/sqrt(2)
+
+pDatAge7Metal$Mo_lod = pDatAge7Metal$Mo
+pDatAge7Metal$Mo_lod[pDatAge7Metal$Mo_comment == 37] = 0.201/sqrt(2)
+
+pDatAge7Metal$Ni_lod = pDatAge7Metal$Ni
+pDatAge7Metal$Ni_lod[pDatAge7Metal$Ni_comment == 37] = 0.484/sqrt(2)
+
+pDatAge7Metal$Pb_lod = pDatAge7Metal$Pb
+pDatAge7Metal$Pb_lod[pDatAge7Metal$Pb_comment == 37] = 0.0746/sqrt(2)
+
+pDatAge7Metal$Sb_lod = pDatAge7Metal$Sb
+pDatAge7Metal$Sb_lod[pDatAge7Metal$Sb_comment == 37] = 0.0937/sqrt(2)
+
+pDatAge7Metal$Se_lod = pDatAge7Metal$Se
+pDatAge7Metal$Se_lod[pDatAge7Metal$Se_comment == 37] = 1.73/sqrt(2)
+
+pDatAge7Metal$Sn_lod = pDatAge7Metal$Sn
+pDatAge7Metal$Sn_lod[pDatAge7Metal$Sn_comment == 37] = 1.41/sqrt(2)
+
+pDatAge7Metal$Tl_lod = pDatAge7Metal$Tl
+pDatAge7Metal$Tl_lod[pDatAge7Metal$Tl_comment == 37] = 0.0937/sqrt(2)
+
+pDatAge7Metal$V_lod = pDatAge7Metal$V
+pDatAge7Metal$V_lod[pDatAge7Metal$V_comment == 37] = 0.0475/sqrt(2)
+
+pDatAge7Metal$Zn_lod = pDatAge7Metal$Zn
+pDatAge7Metal$Zn_lod[pDatAge7Metal$Zn_comment == 37] = 8.74/sqrt(2)
+
+# function to summarize metals data
+tabMetals_lod = function(df, vars){
+	dfMetal = data.frame(matrix(ncol = 2, nrow = length(vars)))
+	colnames(dfMetal) = c('median', 'IQR')
+	rownames(dfMetal) = vars
+	for (i in 1:length(vars)){
+		metal = df[[vars[i]]][!(is.na(df[[vars[i]]]))]
+		dfMetal[i,] = c(round(median(metal), 1), paste0(round(quantile(metal)[2], 1), ', ', round(quantile(metal)[4], 1)))
+	}
+	return(dfMetal)
+}
+
+dfMetMedian_lod = tabMetals_lod(pDatAge7Metal, c('Al_lod', 'As_lod', 'Ba_lod', 'Cd_lod', 'Co_lod', 'Cr_lod', 'Cs_lod', 'Cu_lod', 'Mg_lod', 'Mn_lod', 'Mo_lod', 'Ni_lod', 'Pb_lod', 'Sb_lod', 'Se_lod', 'Sn_lod', 'Tl_lod', 'V_lod', 'Zn_lod'))
+```
+
+```{r, echo = F}
+dfMetMedian %>% kable() %>% kable_styling(font_size = 14) 
+```
+
+
+## Correlation between metals (insignificant correlations are not shaded)
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE, echo = F}
+M = cor(pDatAge7Metal[,c('As', 'Ba', 'Cd', 'Cr', 'Cs', 'Cu', 'Hg', 'Mg', 'Mn', 'Pb', 'Se', 'Zn')], method = 'spearman', use='complete')
+res1 = cor.mtest(pDatAge7Metal[,c('As', 'Ba', 'Cd', 'Cr', 'Cs', 'Cu', 'Hg', 'Mg', 'Mn', 'Pb', 'Se', 'Zn')], conf.level = .95, method = 'spearman', exact = F, use='complete')
+```
+
+```{r, warning=FALSE,message=FALSE,eval = F}
+corrplot(M, method = "color", 
+         type = "upper", number.cex = .7,
+         addCoef.col = "black", # Add coefficient of correlation
+         tl.col = "black", tl.srt = 90, # Text label color and rotation
+         # Combine with significance
+         p.mat = res1$p, sig.level = 0.05, insig = "blank", 
+         # hide correlation coefficient on the principal diagonal
+         diag = FALSE)
+         
+quartz.save('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/metalCorr_age7.png', type = "png", dpi = 300)
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/metalCorr_age7.png")
+```
+
+
+## Clean covariate data and log2 transformations
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+pDatAge7Metal$race_child2[pDatAge7Metal$race_child_3y_dx == 'white'] = 1  # white = reference
+pDatAge7Metal$race_child2[pDatAge7Metal$race_child_3y_dx == 'black'] = 2 # black
+pDatAge7Metal$race_child2[pDatAge7Metal$race_child_3y_dx == 'hispa'] = 3 # hispanic
+pDatAge7Metal$race_child2[pDatAge7Metal$race_child_3y_dx == 'asian'] = 4 # asian
+pDatAge7Metal$race_child2[pDatAge7Metal$race_child_3y_dx == 'more than 1 race' | pDatAge7Metal$race_child_3y_dx == 'other'] = 5 # more than 1 race or other
+pDatAge7Metal$race_child2 = factor(pDatAge7Metal$race_child2)
+
+pDatAge7Metal$smk_preg[pDatAge7Metal$smokpreg_final_d == 'smoke preg'] = 1
+pDatAge7Metal$smk_preg[pDatAge7Metal$smokpreg_final_d == 'xnever' | pDatAge7Metal$smokpreg_final_d == 'former'] = 0
+pDatAge7Metal$smk_preg = factor(pDatAge7Metal$smk_preg)
+
+# log2 transformation
+pDatAge7Metal$Al_log2 = log(pDatAge7Metal$Al_lod, 2)
+pDatAge7Metal$As_log2 = log(pDatAge7Metal$As_lod, 2)
+pDatAge7Metal$Ba_log2 = log(pDatAge7Metal$Ba_lod, 2)
+pDatAge7Metal$Cd_log2 = log(pDatAge7Metal$Cd_lod, 2)
+pDatAge7Metal$Co_log2 = log(pDatAge7Metal$Co_lod, 2)
+pDatAge7Metal$Cr_log2 = log(pDatAge7Metal$Cr_lod, 2)
+pDatAge7Metal$Cs_log2 = log(pDatAge7Metal$Cs_lod, 2)
+pDatAge7Metal$Cu_log2 = log(pDatAge7Metal$Cu_lod, 2)
+pDatAge7Metal$Mg_log2 = log(pDatAge7Metal$Mg_lod, 2)
+pDatAge7Metal$Hg_log2 = log(pDatAge7Metal$Hg_lod, 2)
+pDatAge7Metal$Mn_log2 = log(pDatAge7Metal$Mn_lod, 2)
+pDatAge7Metal$Mo_log2 = log(pDatAge7Metal$Mo_lod, 2)
+pDatAge7Metal$Ni_log2 = log(pDatAge7Metal$Ni_lod, 2)
+pDatAge7Metal$Pb_log2 = log(pDatAge7Metal$Pb_lod, 2)
+pDatAge7Metal$Sb_log2 = log(pDatAge7Metal$Sb_lod, 2)
+pDatAge7Metal$Se_log2 = log(pDatAge7Metal$Se_lod, 2)
+pDatAge7Metal$Sn_log2 = log(pDatAge7Metal$Sn_lod, 2)
+pDatAge7Metal$Tl_log2 = log(pDatAge7Metal$Tl_lod, 2)
+pDatAge7Metal$V_log2 = log(pDatAge7Metal$V_lod, 2)
+pDatAge7Metal$Zn_log2 = log(pDatAge7Metal$Zn_lod, 2)
+
+# Indicator variable for above LOD
+pDatAge7Metal$Al_det[pDatAge7Metal$Al_comment == 37] = 1
+pDatAge7Metal$Al_det[pDatAge7Metal$Al_comment == 0] = 0
+pDatAge7Metal$As_det[pDatAge7Metal$As_comment == 37] = 1
+pDatAge7Metal$As_det[pDatAge7Metal$As_comment == 0] = 0
+pDatAge7Metal$Ba_det[pDatAge7Metal$Ba_comment == 37] = 1
+pDatAge7Metal$Ba_det[pDatAge7Metal$Ba_comment == 0] = 0
+pDatAge7Metal$Cd_det[pDatAge7Metal$Cd_comment == 37] = 1
+pDatAge7Metal$Cd_det[pDatAge7Metal$Cd_comment == 0] = 0
+pDatAge7Metal$Co_det[pDatAge7Metal$Co_comment == 37] = 1
+pDatAge7Metal$Co_det[pDatAge7Metal$Co_comment == 0] = 0
+pDatAge7Metal$Cr_det[pDatAge7Metal$Cr_comment == 37] = 1
+pDatAge7Metal$Cr_det[pDatAge7Metal$Cr_comment == 0] = 0
+pDatAge7Metal$Hg_det[pDatAge7Metal$Hg_comment == 37 & !is.na(pDatAge7Metal$Hg_comment)] = 1
+pDatAge7Metal$Hg_det[pDatAge7Metal$Hg_comment == 0 & !is.na(pDatAge7Metal$Hg_comment)] = 0
+pDatAge7Metal$Mn_det[pDatAge7Metal$Mn_comment == 37] = 1
+pDatAge7Metal$Mn_det[pDatAge7Metal$Mn_comment == 0] = 0
+pDatAge7Metal$Mo_det[pDatAge7Metal$Mo_comment == 37] = 1
+pDatAge7Metal$Mo_det[pDatAge7Metal$Mo_comment == 0] = 0
+pDatAge7Metal$Ni_det[pDatAge7Metal$Ni_comment == 37] = 1
+pDatAge7Metal$Ni_det[pDatAge7Metal$Ni_comment == 0] = 0
+pDatAge7Metal$Sb_det[pDatAge7Metal$Sb_comment == 37] = 1
+pDatAge7Metal$Sb_det[pDatAge7Metal$Sb_comment == 0] = 0
+pDatAge7Metal$Sn_det[pDatAge7Metal$Sn_comment == 37] = 1
+pDatAge7Metal$Sn_det[pDatAge7Metal$Sn_comment == 0] = 0
+pDatAge7Metal$V_det[pDatAge7Metal$V_comment == 37] = 1
+pDatAge7Metal$V_det[pDatAge7Metal$V_comment == 0] = 0
+
+```
+
+## Associations with cell type %
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+
+# function for generating table with lm results
+cellAssoc = function(data, cells, metals){
+	results = data.frame(matrix(nrow = length(metals), ncol = length(cells)*2))
+	rownames(results) = metals
+	colnames(results) = unlist(lapply(1:length(cells), function(x) c(paste0(cells[x], '_B'), paste0(cells[x], '_p'))))
+	for (i in 1:length(metals)){
+		metals_comment = paste0(metals, '_comment')
+		metals_log2 = paste0(metals, '_log2')
+		# testing associations for metals detected in >= 80% of samples
+		for (j in 1:length(cells)){
+			col = j + (j-1)
+			mod = lm((data[[cells[j]]] * 100) ~ data[[metals_log2[i]]] + data$female_d + data$race_child2 + data$gestage_wks_deliv_d + data$age_mom_enroll_d + data$bmi_mom_prepreg_d + data$coll_grad + data$nullip + data$gt70k + data$smk_preg)
+			results[i,col] = summary(mod)$coefficients[2,1]
+			results[i,col+1] = summary(mod)$coefficients[2,4]
+		}
+	}
+	return(results)
+}
+
+# metals detected in > 80% of samples
+metals = c('As', 'Ba', 'Cd', 'Cr', 'Cs', 'Cu', 'Hg', 'Mg', 'Mn', 'Pb', 'Se', 'Zn')
+
+# cord blood cell types
+cells = c('Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y')
+
+cellAssocTab = cellAssoc(pDatAge7Metal, cells, metals)
+
+cellAssocTab = round(cellAssocTab, 3)
+
+colnames(cellAssocTab) = rep(c('B', 'p'), times = 6)
+
+```
+
+```{r,warning=FALSE,message=FALSE,echo = F}
+kbl(cellAssocTab) %>% kable_paper() %>% add_header_above(c(" ", "B cell 1" = 2, "CD4T" = 2, "CD8T" = 2, "Neu" = 2, "Mono" = 2, "NK" = 2))
+```
+
+## Save cleaned datasets
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+save(ComBat.Mvalues.Metals, ComBat.Betas.Metals, pDatAge7Metal, file = "/Users/annebozack/Box/NIEHS-R01 ONES/Methylation Data/Age7Blood_ComBat_Betas_Mvlas_filteredPorbes_metalAnalaysis.RData")
+
+```
+
+
+
+
+
+
+
+
+
