@@ -229,13 +229,18 @@ combp2<-function(data,dist.cutoff=1000,bin.size=310,seed=0.01,
     result.fdr$length = (result.fdr$end - result.fdr$start) + 1
     result.fdr = result.fdr[result.fdr$length > 1,]
 
-    ##### BH FDR correction and Sidak correction
-    result.fdr$fdr=p.adjust(result.fdr$p,method="fdr")
-    result.fdr$sidak=(1-(1-result.fdr$p)^(nrow(data)/(result.fdr$end-result.fdr$start+1)))
-    result.fdr<-result.fdr[order(result.fdr$p),]
+	if (nrow(result.fdr)>0){
+		
+		##### BH FDR correction and Sidak correction
+    	result.fdr$fdr=p.adjust(result.fdr$p,method="fdr")
+    	result.fdr$sidak=(1-(1-result.fdr$p)^(nrow(data)/(result.fdr$end-result.fdr$start+1)))
+    	result.fdr<-result.fdr[order(result.fdr$p),]
 
-    ##### use 0-coordinate
-    result.fdr$start=(result.fdr$start-1)
+    	##### use 0-coordinate
+    	result.fdr$start=(result.fdr$start-1)
+	} else {
+		result.fdr = NULL
+	}
   }
 
   if(is.null(result.fdr)){cat("Number of identified DMR:  0\n")}else{
