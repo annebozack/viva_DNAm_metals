@@ -708,6 +708,12 @@ pDatcordMetal$Sn_det[pDatcordMetal$Sn_comment == 0] = 0
 pDatcordMetal$V_det[pDatcordMetal$V_comment == 37] = 1
 pDatcordMetal$V_det[pDatcordMetal$V_comment == 0] = 0
 
+# smoking 
+pDatcordMetal$smk_preg2[pDatcordMetal$smokpreg_final_d == 'xnever'] = 0
+pDatcordMetal$smk_preg2[pDatcordMetal$smokpreg_final_d == 'former'] = 1
+pDatcordMetal$smk_preg2[pDatcordMetal$smokpreg_final_d == 'smoke preg'] = 2
+pDatcordMetal$smk_preg2 = factor(pDatcordMetal$smk_preg2)
+
 ```
 
 ## Associations with cell type %
@@ -725,7 +731,7 @@ cellAssoc = function(data, cells, metals){
 		# testing associations for metals detected in >= 80% of samples
 		for (j in 1:length(cells)){
 			col = j + (j-1)
-			mod = lm((data[[cells[j]]] * 100) ~ data[[metals_log2[i]]] + data$female_d + data$race_child2 + data$gestage_wks_deliv_d + data$age_mom_enroll_d + data$bmi_mom_prepreg_d + data$coll_grad + data$nullip + data$gt70k + data$smk_preg)
+			mod = lm((data[[cells[j]]] * 100) ~ data[[metals_log2[i]]] + data$female_d + data$race_child2 + data$gestage_wks_deliv_d + data$age_mom_enroll_d + data$bmi_mom_prepreg_d + data$coll_grad + data$nullip + data$gt70k + data$smk_preg2)
 			results[i,col] = summary(mod)$coefficients[2,1]
 			results[i,col+1] = summary(mod)$coefficients[2,4]
 		}
@@ -754,7 +760,7 @@ kbl(cellAssocTab) %>% kable_paper() %>% add_header_above(c(" ", "B cell 1" = 2, 
 ## Save cleaned datasets
 
 ```{r, warning=FALSE,message=FALSE,eval=FALSE}
-save(ComBat.Mvalues.Metals, ComBat.Betas.Metals, pDatcordMetal, file = "/Users/annebozack/Box/NIEHS-R01 ONES/Methylation Data/CordBlood_ComBat_Betas_Mvlas_filteredPorbes_metalAnalysis.RData")
+save(ComBat.Mvalues.Metals, ComBat.Betas.Metals, pDatcordMetal, file = "/Users/annebozack/Box/NIEHS-R01 ONES/Methylation Data/CordBlood_ComBat_Betas_Mvals_filteredProbes_metalAnalysis.RData")
 ```
 
 

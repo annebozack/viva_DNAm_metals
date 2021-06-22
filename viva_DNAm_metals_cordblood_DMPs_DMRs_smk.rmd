@@ -1,0 +1,2624 @@
+---
+title: "Project Viva: Cord blood DNAm and metals EWAS"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 1100)
+```
+
+
+## Required Packages and functions
+
+```{r library,warning=FALSE,message=FALSE,eval=FALSE}
+# libraries
+library(sas7bdat)
+library(sva)
+library(reshape)
+library(ggplot2)
+library(gridExtra)
+library(knitr)
+library(dplyr)
+library(kableExtra)
+library(tidyverse)
+library(minfi)
+library(stringr)
+library(limma)
+library(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+library(minfi)
+library(DMRcate)
+library(UpSetR)
+library(reshape)
+library(corrplot)
+library(factoextra)
+library(ENmix)
+library(missMethyl)
+
+# loading annotation
+anno = getAnnotation(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+anno = data.frame(anno)
+
+# loading functions
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local')
+source('EWAS functions.R')
+```
+
+## Load DNAm and pheno data
+
+```{r data,warning=FALSE,message=FALSE,eval= FALSE}
+load("/Users/annebozack/Box/NIEHS-R01 ONES/Methylation Data/CordBlood_ComBat_Betas_Mvals_filteredProbes_metalAnalysis.RData")
+
+dim(pDatcordMetal)
+# 361 164
+
+dim(ComBat.Mvalues.Metals)
+# 394460    361
+
+rownames(pDatcordMetal) = pDatcordMetal$samplename
+
+# smoking 
+pDatcordMetal$smk_preg2[pDatcordMetal$smokpreg_final_d == 'xnever'] = 0
+pDatcordMetal$smk_preg2[pDatcordMetal$smokpreg_final_d == 'former'] = 1
+pDatcordMetal$smk_preg2[pDatcordMetal$smokpreg_final_d == 'smoke preg'] = 2
+pDatcordMetal$smk_preg2 = factor(pDatcordMetal$smk_preg2)
+
+```
+
+## EWAS
+
+### As
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_As_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal, var = 'As_log2', covar = c('female_d', 'race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/As_smk')
+
+# Unadjusted, N =  361 
+# Unadjusted, p<0.05:  11440 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  361 
+# Adjusted, p<0.05:  18621 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.04115 
+ 
+# Number of DMRs identified:   1 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals)
+y = pDatcordMetal$As_log2
+X = model.matrix(~ female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.2060937
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.4714538
+
+DMP_As_cord[[3]] = NULL
+
+# Sensitivity analysis including fish consumption
+DMP_As_cord_fish = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal, var = 'As_log2', covar = c('female_d', 'race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'fish_d_f1', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/As_smk_fish')
+
+# Unadjusted, N =  361 
+# Unadjusted, p<0.05:  11440 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  340 
+# Adjusted, p<0.05:  16980 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.018171 
+ 
+# Number of identified DMR:  0
+
+DMP_As_cord_fish[[3]] = NULL
+```
+
+#### No adjustment for fish consumption
+
+#### DMRs
+
+```{r, echo = F}
+DMP_As_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/As_smk/As_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/As_smk/As_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/As_smk/As_log2_manhattan_DMP_adj.png")
+```
+
+#### As, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+pDatcordMetal_F = pDatcordMetal[pDatcordMetal$female_d == 1,]
+pDatcordMetal_F$race_child2 = as.factor(as.numeric(pDatcordMetal_F$race_child2))
+
+DMP_As_F_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_F, var = 'As_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/As_F_smk')
+
+# Unadjusted, N =  169 
+# Unadjusted, p<0.05:  17949 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  169 
+# Adjusted, p<0.05:  15998 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.9470011 
+ 
+# Number of DMRs identified:   2 
+
+# Global DNAm
+ComBat.Betas.Metals_F = ComBat.Betas.Metals[,colnames(ComBat.Betas.Metals) %in% rownames(pDatcordMetal_F)]
+ComBat.Betas.Metals_F = ComBat.Betas.Metals_F[,match(rownames(pDatcordMetal_F), colnames(ComBat.Betas.Metals_F))]
+
+Z = as.matrix(ComBat.Betas.Metals_F)
+y = pDatcordMetal_F$As_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_F)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.2649051
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.6430838
+
+DMP_As_F_cord[[3]] = NULL
+
+# Sensitivity analysis including fish consumption
+DMP_As_F_cord_fish = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_F, var = 'As_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'fish_d_f1', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/As_F_smk_fish')
+
+# Unadjusted, N =  169 
+# Unadjusted, p<0.05:  17949 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  163 
+# Adjusted, p<0.05:  17835 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.001399 
+ 
+# Number of DMRs identified:   2 
+
+DMP_As_F_cord_fish[[3]] = NULL
+```
+
+#### No adjustment for fish consumption
+
+#### DMRs
+
+```{r, echo = F}
+DMP_As_F_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/As_F_smk/As_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/As_F_smk/As_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/As_F_smk/As_log2_manhattan_DMP_adj.png")
+```
+
+#### As, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+pDatcordMetal_M = pDatcordMetal[pDatcordMetal$female_d == 0,]
+pDatcordMetal_M$race_child2 = as.factor(as.numeric(pDatcordMetal_M$race_child2))
+
+DMP_As_M_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_M, var = 'As_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/As_M_smk')
+
+# Unadjusted, N =  192 
+# Unadjusted, p<0.05:  12218 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  192 
+# Adjusted, p<0.05:  17778 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.012338 
+
+# Number of DMRs identified:   6 
+
+# Global DNAm
+ComBat.Betas.Metals_M = ComBat.Betas.Metals[,colnames(ComBat.Betas.Metals) %in% rownames(pDatcordMetal_M)]
+ComBat.Betas.Metals_M = ComBat.Betas.Metals_M[,match(rownames(pDatcordMetal_M), colnames(ComBat.Betas.Metals_M))]
+
+Z = as.matrix(ComBat.Betas.Metals_M)
+y = pDatcordMetal_M$As_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_M)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.5010154
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.4794129
+
+DMP_As_M_cord[[3]] = NULL
+
+# Sensitivity analysis including fish consumption
+DMP_As_M_cord_fish = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_M, var = 'As_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'fish_d_f1', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/As_M_smk_fish')
+
+# Unadjusted, N =  192 
+# Unadjusted, p<0.05:  12218 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  177 
+# Adjusted, p<0.05:  17523 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.045777 
+ 
+# Number of identified DMR:  0
+
+DMP_As_M_cord_fish[[3]] = NULL
+
+```
+
+#### No adjustment for fish consumption
+
+#### DMRs
+
+```{r, echo = F}
+DMP_As_M_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/As_M_smk/As_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/As_M_smk/As_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/As_M_smk/As_log2_manhattan_DMP_adj.png")
+```
+
+
+### Ba
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Ba_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal, var = 'Ba_log2', covar = c('female_d', 'race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Ba_smk')
+
+# Unadjusted, N =  361 
+# Unadjusted, p<0.05:  21408 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  361 
+# Adjusted, p<0.05:  18979 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.005839 
+ 
+# Number of identified DMR:  0
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals)
+y = pDatcordMetal$Ba_log2
+X = model.matrix(~ female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 1
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.9642374
+
+DMP_Ba_cord[[3]] = NULL
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Ba_smk/Ba_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Ba_smk/Ba_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Ba_smk/Ba_log2_manhattan_DMP_adj.png")
+```
+
+#### Ba, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Ba_F_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_F, var = 'Ba_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Ba_F_smk')
+
+# Unadjusted, N =  169 
+# Unadjusted, p<0.05:  16994 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  169 
+# Adjusted, p<0.05:  13447 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.7988493 
+ 
+# Number of DMRs identified:   2 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals_F)
+y = pDatcordMetal_F$Ba_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_F)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.8719371
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.9047666
+
+DMP_Ba_F_cord[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Ba_F_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Ba_F_smk/Ba_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Ba_F_smk/Ba_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Ba_F_smk/Ba_log2_manhattan_DMP_adj.png")
+```
+
+#### Ba, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Ba_M_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_M, var = 'Ba_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Ba_M_smk')
+
+# Unadjusted, N =  192 
+# Unadjusted, p<0.05:  16173 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  192 
+# Adjusted, p<0.05:  14253 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.8647773 
+ 
+# Number of DMRs identified:   2 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals_M)
+y = pDatcordMetal_M$Ba_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_M)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.6918766
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.8282238
+
+DMP_Ba_M_cord[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Ba_M_cord[[2]] %>% kable() %>% kable_styling(font_size = 14) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Ba_M_smk/Ba_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Ba_M_smk/Ba_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Ba_M_smk/Ba_log2_manhattan_DMP_adj.png")
+```
+
+
+### Cd
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cd_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal, var = 'Cd_log2', covar = c('female_d', 'race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cd_smk')
+
+# Unadjusted, N =  361 
+# Unadjusted, p<0.05:  13284 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  361 
+# Adjusted, p<0.05:  16155 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.9008795 
+
+# Number of DMRs identified:   5 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals)
+y = pDatcordMetal$Cd_log2
+X = model.matrix(~ female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.9505146
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.9287107
+
+DMP_Cd_cord[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Cd_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cd_smk/Cd_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cd_smk/Cd_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cd_smk/Cd_log2_manhattan_DMP_adj.png")
+```
+
+#### Cd, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cd_F_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_F, var = 'Cd_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cd_F_smk')
+
+# Unadjusted, N =  169 
+# Unadjusted, p<0.05:  19177 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  169 
+# Adjusted, p<0.05:  17515 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.9484605 
+ 
+# Number of DMRs identified:   2 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals_F)
+y = pDatcordMetal_F$Cd_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_F)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.6774836
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.7989639
+
+DMP_Cd_F_cord[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Cd_F_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cd_F_smk/Cd_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cd_F_smk/Cd_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cd_F_smk/Cd_log2_manhattan_DMP_adj.png")
+```
+
+#### Cd, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cd_M_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_M, var = 'Cd_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cd_M_smk')
+
+# Unadjusted, N =  192 
+# Unadjusted, p<0.05:  8842 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  192 
+# Adjusted, p<0.05:  16112 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.9725517 
+
+# Number of DMRs identified:   4 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals_M)
+y = pDatcordMetal_M$Cd_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_M)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 1
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.4183672
+ 
+DMP_Cd_M_cord[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Cd_M_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cd_M_smk/Cd_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cd_M_smk/Cd_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cd_M_smk/Cd_log2_manhattan_DMP_adj.png")
+```
+
+
+### Cr
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cr_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal, var = 'Cr_log2', covar = c('female_d', 'race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cr_smk')
+
+# Unadjusted, N =  361 
+# Unadjusted, p<0.05:  19469 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  361 
+# Adjusted, p<0.05:  20800 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.012833 
+ 
+# Number of DMRs identified:   4 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals)
+y = pDatcordMetal$Cr_log2
+X = model.matrix(~ female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.6865602
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.824518
+
+DMP_Cr_cord[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Cr_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+#### No adjustment for fish consumption
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cr_smk/Cr_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cr_smk/Cr_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cr_smk/Cr_log2_manhattan_DMP_adj.png")
+```
+
+#### Cr, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cr_F_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_F, var = 'Cr_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cr_F_smk')
+
+# Unadjusted, N =  169 
+# Unadjusted, p<0.05:  15600 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  169 
+# Adjusted, p<0.05:  14094 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.8406537 
+ 
+# Number of DMRs identified:   2 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals_F)
+y = pDatcordMetal_F$Cr_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_F)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 1
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.9618538
+
+DMP_Cr_F_cord[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Cr_F_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cr_F_smk/Cr_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cr_F_smk/Cr_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cr_F_smk/Cr_log2_manhattan_DMP_adj.png")
+```
+
+#### Cr, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cr_M_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_M, var = 'Cr_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cr_M_smk')
+
+# Unadjusted, N =  192 
+# Unadjusted, p<0.05:  13268 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  192 
+# Adjusted, p<0.05:  16129 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.91629 
+ 
+# Number of identified DMR:  0
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals_M)
+y = pDatcordMetal_M$Cr_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_M)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.5270954
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.7370205
+
+DMP_Cr_M_cord[[3]] = NULL
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cr_M_smk/Cr_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cr_M_smk/Cr_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cr_M_smk/Cr_log2_manhattan_DMP_adj.png")
+```
+
+### Cs
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cs_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal, var = 'Cs_log2', covar = c('female_d', 'race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cs_smk')
+
+# Unadjusted, N =  361 
+# Unadjusted, p<0.05:  28868 
+# Unadjusted, FDR<0.05:  5 
+# Unadjusted, pBonf<0.05:  3 
+ 
+# Adjusted, N =  361 
+# Adjusted, p<0.05:  19656 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.023771 
+ 
+# Number of DMRs identified:   19 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals)
+y = pDatcordMetal$Cs_log2
+X = model.matrix(~ female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.4773269
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.4819991
+
+DMP_Cs_cord[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Cs_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cs_smk/Cs_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cs_smk/Cs_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cs_smk/Cs_log2_manhattan_DMP_adj.png")
+```
+
+#### Cs, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cs_F_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_F, var = 'Cs_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cs_F_smk')
+
+# Unadjusted, N =  169 
+# Unadjusted, p<0.05:  14228 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  169 
+# Adjusted, p<0.05:  11215 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.7833446 
+ 
+# Number of DMRs identified:   3 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals_F)
+y = pDatcordMetal_F$Cs_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_F)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.6525172
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.9363569
+
+DMP_Cs_F_cord[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Cs_F_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cs_F_smk/Cs_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cs_F_smk/Cs_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cs_F_smk/Cs_log2_manhattan_DMP_adj.png")
+```
+
+#### Cs, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cs_M_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_M, var = 'Cs_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cs_M_smk')
+
+Unadjusted, N =  192 
+Unadjusted, p<0.05:  23725 
+Unadjusted, FDR<0.05:  0 
+Unadjusted, pBonf<0.05:  0 
+ 
+Adjusted, N =  192 
+Adjusted, p<0.05:  20888 
+Adjusted, FDR<0.05:  0 
+Adjusted, pBonf<0.05:  0 
+Adjusted, lambda:  1.090349 
+ 
+Number of DMRs identified:   14 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals_M)
+y = pDatcordMetal_M$Cs_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_M)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.9909583
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.5722894
+
+DMP_Cs_M_cord[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Cs_M_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cs_M_smk/Cs_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cs_M_smk/Cs_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cs_M_smk/Cs_log2_manhattan_DMP_adj.png")
+```
+
+
+### Cu
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cu_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal, var = 'Cu_log2', covar = c('female_d', 'race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cu_smk')
+
+# Unadjusted, N =  361 
+# Unadjusted, p<0.05:  31830 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  361 
+# Adjusted, p<0.05:  57431 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.843163 
+ 
+# Number of DMRs identified:   4 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals)
+y = pDatcordMetal$Cu_log2
+X = model.matrix(~ female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.4060445
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.0567817
+
+DMP_Cu_cord[[3]] = NULL
+```
+
+#### FDR-significant DMPs
+
+```{r, echo = F}
+DMP_Cu_cord[[1]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Cs_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cu_smk/Cu_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cu_smk/Cu_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cu_smk/Cu_log2_manhattan_DMP_adj.png")
+```
+
+#### Cu, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cu_F_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_F, var = 'Cu_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cu_F_smk')
+
+# # Unadjusted, N =  169 
+# Unadjusted, p<0.05:  34435 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  169 
+# Adjusted, p<0.05:  17151 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.051202 
+ 
+# Number of DMRs identified:   2 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals_F)
+y = pDatcordMetal_F$Cu_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_F)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.2201764
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.2115454
+
+DMP_Cu_F_cord[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Cu_F_cord[[2]] %>% kable() %>% kable_styling(font_size = 14) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cu_F_smk/Cu_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cu_F_smk/Cu_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cu_F_smk/Cu_log2_manhattan_DMP_adj.png")
+```
+
+#### Cu, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cu_M_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_M, var = 'Cu_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cu_M_smk')
+
+# Unadjusted, N =  192 
+# Unadjusted, p<0.05:  10164 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  192 
+# Adjusted, p<0.05:  57571 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.920529 
+ 
+# Number of DMRs identified:   7 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals_M)
+y = pDatcordMetal_M$Cu_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_M)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.8831614
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.2219984
+
+DMP_Cu_M_cord[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Cu_M_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cu_M_smk/Cu_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cu_M_smk/Cu_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Cu_M_smk/Cu_log2_manhattan_DMP_adj.png")
+```
+
+
+### Hg
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Hg_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal, var = 'Hg_log2', covar = c('female_d', 'race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Hg_smk')
+
+# Unadjusted, N =  358 
+# Unadjusted, p<0.05:  38119 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  358 
+# Adjusted, p<0.05:  13574 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.7969179 
+
+# Number of DMRs identified:   2 
+
+# Global DNAm
+pDatcordMetal_Hg = pDatcordMetal[!is.na(pDatcordMetal$Hg_log2),]
+dim(pDatcordMetal_Hg)
+# 358 165
+
+ComBat.Betas.Metals_Hg = ComBat.Betas.Metals[,colnames(ComBat.Betas.Metals) %in% rownames(pDatcordMetal_Hg)]
+ComBat.Betas.Metals_Hg = ComBat.Betas.Metals_Hg[,match(rownames(pDatcordMetal_Hg), colnames(ComBat.Betas.Metals_Hg))]
+
+Z = as.matrix(ComBat.Betas.Metals_Hg)
+y = pDatcordMetal_Hg$Hg_log2
+X = model.matrix(~ female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_Hg)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 1
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.8498853
+
+DMP_Hg_cord[[3]] = NULL
+
+# Sensitivity analysis including fish consumption
+DMP_Hg_cord_fish = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal, var = 'Hg_log2', covar = c('female_d', 'race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'fish_d_f1', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Hg_smk_fish')
+
+# Unadjusted, N =  358 
+# Unadjusted, p<0.05:  38119 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  337 
+# Adjusted, p<0.05:  12500 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.789449 
+ 
+# Number of DMRs identified:   1 
+
+DMP_Hg_cord_fish[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Hg_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Hg_smk/Hg_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Hg_smk/Hg_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Hg_smk/Hg_log2_manhattan_DMP_adj.png")
+```
+
+#### Hg, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Hg_F_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_F, var = 'Hg_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Hg_F_smk')
+
+# Unadjusted, N =  167 
+# Unadjusted, p<0.05:  11528 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  167 
+# Adjusted, p<0.05:  10058 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.7103341 
+ 
+# Number of identified DMR:  0
+
+# Global DNAm
+pDatcordMetal_HgF = pDatcordMetal_Hg[pDatcordMetal_Hg$female_d == 1,]
+dim(pDatcordMetal_HgF)
+# 167 165
+
+ComBat.Betas.Metals_HgF = ComBat.Betas.Metals[,colnames(ComBat.Betas.Metals) %in% rownames(pDatcordMetal_HgF)]
+ComBat.Betas.Metals_HgF = ComBat.Betas.Metals_HgF[,match(rownames(pDatcordMetal_HgF), colnames(ComBat.Betas.Metals_HgF))]
+
+Z = as.matrix(ComBat.Betas.Metals_HgF)
+y = pDatcordMetal_HgF$Hg_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_HgF)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 1
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.9751191
+
+DMP_Hg_F_cord[[3]] = NULL
+
+# Sensitivity analysis including fish consumption
+DMP_Hg_F_cord_fish = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_F, var = 'Hg_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'fish_d_f1', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Hg_F_smk_fish')
+
+# Unadjusted, N =  167 
+# Unadjusted, p<0.05:  11528 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  161 
+# Adjusted, p<0.05:  9299 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.7007602 
+ 
+# Number of identified DMR:  0
+
+DMP_Hg_F_cord_fish[[3]] = NULL
+```
+
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Hg_F_smk/Hg_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Hg_F_smk/Hg_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Hg_F_smk/Hg_log2_manhattan_DMP_adj.png")
+```
+
+#### Hg, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Hg_M_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_M, var = 'Hg_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Hg_M_smk')
+
+# Unadjusted, N =  191 
+# Unadjusted, p<0.05:  32177 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  191 
+# Adjusted, p<0.05:  12443 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.7917212 
+ 
+# Number of DMRs identified:   3 
+
+# Global DNAm
+pDatcordMetal_HgM = pDatcordMetal_Hg[pDatcordMetal_Hg$female_d == 0,]
+dim(pDatcordMetal_HgM)
+# 191 164
+
+ComBat.Betas.Metals_HgM = ComBat.Betas.Metals[,colnames(ComBat.Betas.Metals) %in% rownames(pDatcordMetal_HgM)]
+ComBat.Betas.Metals_HgM = ComBat.Betas.Metals_HgM[,match(rownames(pDatcordMetal_HgM), colnames(ComBat.Betas.Metals_HgM))]
+
+Z = as.matrix(ComBat.Betas.Metals_HgM)
+y = pDatcordMetal_HgM$Hg_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_HgM)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 1
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.8541436
+
+DMP_Hg_M_cord[[3]] = NULL
+
+# Sensitivity analysis including fish consumption
+DMP_Hg_M_cord_fish = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_M, var = 'Hg_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'fish_d_f1', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Hg_M_smk_fish')
+
+# Unadjusted, N =  191 
+# Unadjusted, p<0.05:  32177 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  176 
+# Adjusted, p<0.05:  13414 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.8575889 
+ 
+# Number of DMRs identified:   2 
+
+DMP_Hg_M_cord_fish[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Hg_M_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Hg_M_smk/Hg_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Hg_M_smk/Hg_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Hg_M_smk/Hg_log2_manhattan_DMP_adj.png")
+```
+
+
+### Mg
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Mg_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal, var = 'Mg_log2', covar = c('female_d', 'race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mg_smk')
+
+# Unadjusted, N =  361 
+# Unadjusted, p<0.05:  20828 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  361 
+# Adjusted, p<0.05:  19872 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.06817 
+ 
+# Number of DMRs identified:   5 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals)
+y = pDatcordMetal$Mg_log2
+X = model.matrix(~ female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.4836713
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.3595287
+
+DMP_Mg_cord[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Mg_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mg_smk/Mg_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mg_smk/Mg_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mg_smk/Mg_log2_manhattan_DMP_adj.png")
+```
+
+#### Mg, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Mg_F_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_F, var = 'Mg_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mg_F_smk')
+
+# Unadjusted, N =  169 
+# Unadjusted, p<0.05:  21465 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  169 
+# Adjusted, p<0.05:  15195 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.8709494 
+ 
+# Number of DMRs identified:   4 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals_F)
+y = pDatcordMetal_F$Mg_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_F)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.4362102
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.5301462
+
+DMP_Mg_F_cord[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Mg_F_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mg_F_smk/Mg_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mg_F_smk/Mg_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mg_F_smk/Mg_log2_manhattan_DMP_adj.png")
+```
+
+#### Mg, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Mg_M_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_M, var = 'Mg_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mg_M_smk')
+
+# Unadjusted, N =  192 
+# Unadjusted, p<0.05:  38543 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  192 
+# Adjusted, p<0.05:  40269 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.596383 
+ 
+# Number of DMRs identified:   1 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals_M)
+y = pDatcordMetal_M$Mg_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_M)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.6709343
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.3772599
+
+DMP_Mg_M_cord[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Mg_M_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mg_M_smk/Mg_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mg_M_smk/Mg_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mg_M_smk/Mg_log2_manhattan_DMP_adj.png")
+```
+
+
+
+### Mn
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Mn_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal, var = 'Mn_log2', covar = c('female_d', 'race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mn_smk')
+
+# Unadjusted, N =  361 
+# Unadjusted, p<0.05:  9732 
+# Unadjusted, FDR<0.05:  1 
+# Unadjusted, pBonf<0.05:  1 
+ 
+# Adjusted, N =  361 
+# Adjusted, p<0.05:  10272 
+# Adjusted, FDR<0.05:  1 
+# Adjusted, pBonf<0.05:  1 
+# Adjusted, lambda:  0.7354948 
+ 
+# Number of DMRs identified:   2 
+  
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals)
+y = pDatcordMetal$Mn_log2
+X = model.matrix(~ female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 1
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.9816769
+
+DMP_Mn_cord[[3]] = NULL
+
+# limma on Beta-values
+DMP_Mn_cord_Beta = run_EWAS(DNAm = ComBat.Betas.Metals, pheno = pDatcordMetal, var = 'Mn_log2', covar = c('female_d', 'race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mn_smk_beta')
+
+# Unadjusted, N =  361 
+# Unadjusted, p<0.05:  9703 
+# Unadjusted, FDR<0.05:  77 
+# Unadjusted, pBonf<0.05:  27 
+ 
+# Adjusted, N =  361 
+# Adjusted, p<0.05:  10999 
+# Adjusted, FDR<0.05:  79 
+# Adjusted, pBonf<0.05:  30 
+# Adjusted, lambda:  0.7346154 
+
+# Number of DMRs identified:   14 
+
+DMP_Mn_cord_Beta[[3]][DMP_Mn_cord_Beta[[3]]$cpg == 'cg02042823',c(2:4)]*100
+              # logFC     CI.L     CI.R
+# cg02042823 2.649407 2.067173 3.231641
+
+rm(DMP_Mn_cord_Beta)
+
+
+# Sex x Mn interactions
+pDatcordMetal$cg02042823 = ComBat.Mvalues.Metals[rownames(ComBat.Mvalues.Metals) == 'cg02042823',]
+pDatcordMetal$cg00954161 = ComBat.Mvalues.Metals[rownames(ComBat.Mvalues.Metals) == 'cg00954161',]
+pDatcordMetal$cg11161853 = ComBat.Mvalues.Metals[rownames(ComBat.Mvalues.Metals) == 'cg11161853',]
+pDatcordMetal$cg23903787 = ComBat.Mvalues.Metals[rownames(ComBat.Mvalues.Metals) == 'cg23903787',]
+pDatcordMetal$cg19908812 = ComBat.Mvalues.Metals[rownames(ComBat.Mvalues.Metals) == 'cg19908812',]
+pDatcordMetal$cg26462130 = ComBat.Mvalues.Metals[rownames(ComBat.Mvalues.Metals) == 'cg26462130',]
+pDatcordMetal$cg08904630 = ComBat.Mvalues.Metals[rownames(ComBat.Mvalues.Metals) == 'cg08904630',]
+pDatcordMetal$cg22799518 = ComBat.Mvalues.Metals[rownames(ComBat.Mvalues.Metals) == 'cg22799518',]
+pDatcordMetal$cg01744822 = ComBat.Mvalues.Metals[rownames(ComBat.Mvalues.Metals) == 'cg01744822',]
+pDatcordMetal$cg15712310 = ComBat.Mvalues.Metals[rownames(ComBat.Mvalues.Metals) == 'cg15712310',]
+pDatcordMetal$cg03763518 = ComBat.Mvalues.Metals[rownames(ComBat.Mvalues.Metals) == 'cg03763518',]
+
+summary(lm(cg02042823 ~ Mn_log2*female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal))
+# Coefficients:
+                     # Estimate Std. Error t value Pr(>|t|)    
+# (Intercept)         -6.229288   4.752119  -1.311  0.19080    
+# Mn_log2              0.507448   0.074999   6.766 5.85e-11 ***
+# female_d1            1.066988   0.536069   1.990  0.04735 *  
+# race_child22         0.232898   0.170639   1.365  0.17321    
+# race_child23        -0.149198   0.220554  -0.676  0.49921    
+# race_child24        -0.094920   0.332073  -0.286  0.77518    
+# race_child25        -0.113221   0.160587  -0.705  0.48127    
+# gestage_wks_deliv_d  0.005978   0.034226   0.175  0.86146    
+# age_mom_enroll_d     0.009590   0.010823   0.886  0.37619    
+# bmi_mom_prepreg_d    0.010942   0.009895   1.106  0.26958    
+# coll_grad1           0.002723   0.124350   0.022  0.98254    
+# nullip1             -0.047540   0.104451  -0.455  0.64930    
+# gt70k1               0.048305   0.109705   0.440  0.65999    
+# smk_preg21           0.026667   0.123308   0.216  0.82891    
+# smk_preg22           0.080889   0.163894   0.494  0.62195    
+# Bcell_GS_cb          9.987107   4.084519   2.445  0.01499 *  
+# CD4T_GS_cb           8.558499   4.445071   1.925  0.05502 .  
+# CD8T_GS_cb          10.715863   4.059726   2.640  0.00869 ** 
+# Gran_GS_cb           8.736424   4.189107   2.086  0.03777 *  
+# Mono_GS_cb           5.361756   4.219680   1.271  0.20473    
+# NK_GS_cb            11.109924   4.827756   2.301  0.02198 *  
+# nRBC_GS_cb           5.621310   3.864676   1.455  0.14673    
+# Mn_log2:female_d1   -0.249108   0.132056  -1.886  0.06010 .
+
+summary(lm(cg00954161 ~ Mn_log2*female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal))
+# Coefficients:
+                     # Estimate Std. Error t value Pr(>|t|)    
+# (Intercept)         -8.552121   3.229710  -2.648 0.008478 ** 
+# Mn_log2              0.062337   0.050972   1.223 0.222198    
+# female_d1           -1.417436   0.364332  -3.891 0.000120 ***
+# race_child22         0.125829   0.115972   1.085 0.278697    
+# race_child23         0.010367   0.149896   0.069 0.944900    
+# race_child24         0.073370   0.225689   0.325 0.745312    
+# race_child25        -0.032562   0.109141  -0.298 0.765621    
+# gestage_wks_deliv_d  0.023038   0.023261   0.990 0.322676    
+# age_mom_enroll_d    -0.001793   0.007355  -0.244 0.807521    
+# bmi_mom_prepreg_d    0.009305   0.006725   1.384 0.167366    
+# coll_grad1          -0.016253   0.084512  -0.192 0.847615    
+# nullip1              0.002808   0.070989   0.040 0.968471    
+# gt70k1              -0.093024   0.074559  -1.248 0.213022    
+# smk_preg21           0.039727   0.083805   0.474 0.635780    
+# smk_preg22           0.058622   0.111388   0.526 0.599034    
+# Bcell_GS_cb         11.558065   2.775986   4.164 3.98e-05 ***
+# CD4T_GS_cb          13.987591   3.021030   4.630 5.22e-06 ***
+# CD8T_GS_cb           8.316463   2.759135   3.014 0.002772 ** 
+# Gran_GS_cb          12.479572   2.847067   4.383 1.56e-05 ***
+# Mono_GS_cb          12.164113   2.867846   4.242 2.87e-05 ***
+# NK_GS_cb            11.697179   3.281116   3.565 0.000416 ***
+# nRBC_GS_cb          11.784569   2.626572   4.487 9.93e-06 ***
+# Mn_log2:female_d1    0.361109   0.089750   4.024 7.08e-05 ***
+
+summary(lm(cg11161853 ~ Mn_log2*female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal))
+# Coefficients:
+                      # Estimate Std. Error t value Pr(>|t|)    
+# (Intercept)         -5.2369391  1.0609188  -4.936 1.25e-06 ***
+# Mn_log2              0.0174724  0.0167438   1.044    0.297    
+# female_d1            0.6402879  0.1196783   5.350 1.62e-07 ***
+# race_child22        -0.0271573  0.0380954  -0.713    0.476    
+# race_child23        -0.0481153  0.0492390  -0.977    0.329    
+# race_child24         0.0538946  0.0741359   0.727    0.468    
+# race_child25        -0.0247498  0.0358514  -0.690    0.490    
+# gestage_wks_deliv_d -0.0035721  0.0076410  -0.467    0.640    
+# age_mom_enroll_d    -0.0017320  0.0024162  -0.717    0.474    
+# bmi_mom_prepreg_d    0.0001844  0.0022091   0.083    0.934    
+# coll_grad1           0.0243383  0.0277613   0.877    0.381    
+# nullip1              0.0143435  0.0233189   0.615    0.539    
+# gt70k1              -0.0128355  0.0244918  -0.524    0.601    
+# smk_preg21          -0.0186029  0.0275288  -0.676    0.500    
+# smk_preg22           0.0026574  0.0365896   0.073    0.942    
+# Bcell_GS_cb         -0.0556373  0.9118760  -0.061    0.951    
+# CD4T_GS_cb          -0.1114615  0.9923699  -0.112    0.911    
+# CD8T_GS_cb          -0.2022964  0.9063409  -0.223    0.824    
+# Gran_GS_cb           0.0391510  0.9352254   0.042    0.967    
+# Mono_GS_cb           0.0490554  0.9420511   0.052    0.959    
+# NK_GS_cb            -0.0780079  1.0778049  -0.072    0.942    
+# nRBC_GS_cb           0.0982060  0.8627957   0.114    0.909    
+# Mn_log2:female_d1   -0.1468865  0.0294816  -4.982 1.00e-06 ***
+
+summary(lm(cg23903787 ~ Mn_log2*female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal))
+# Coefficients:
+                     # Estimate Std. Error t value Pr(>|t|)    
+# (Intercept)         -4.686794   3.331625  -1.407 0.160418    
+# Mn_log2             -0.025216   0.052581  -0.480 0.631841    
+# female_d1           -1.481459   0.375828  -3.942 9.83e-05 ***
+# race_child22         0.140949   0.119632   1.178 0.239550    
+# race_child23        -0.217690   0.154626  -1.408 0.160095    
+# race_child24         0.164864   0.232810   0.708 0.479342    
+# race_child25         0.133239   0.112585   1.183 0.237460    
+# gestage_wks_deliv_d  0.077484   0.023995   3.229 0.001363 ** 
+# age_mom_enroll_d     0.004198   0.007587   0.553 0.580402    
+# bmi_mom_prepreg_d    0.003832   0.006937   0.552 0.581009    
+# coll_grad1           0.005777   0.087179   0.066 0.947207    
+# nullip1              0.028402   0.073229   0.388 0.698366    
+# gt70k1              -0.101465   0.076912  -1.319 0.187983    
+# smk_preg21          -0.087276   0.086449  -1.010 0.313429    
+# smk_preg22          -0.078713   0.114903  -0.685 0.493787    
+# Bcell_GS_cb          4.483483   2.863583   1.566 0.118357    
+# CD4T_GS_cb           4.639408   3.116360   1.489 0.137492    
+# CD8T_GS_cb           4.199998   2.846201   1.476 0.140969    
+# Gran_GS_cb           4.349368   2.936908   1.481 0.139556    
+# Mono_GS_cb           2.760638   2.958342   0.933 0.351398    
+# NK_GS_cb             4.791331   3.384653   1.416 0.157812    
+# nRBC_GS_cb           4.223987   2.709455   1.559 0.119937    
+# Mn_log2:female_d1    0.359894   0.092582   3.887 0.000122 ***
+
+summary(lm(cg19908812 ~ Mn_log2*female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal))
+# Coefficients:
+                     # Estimate Std. Error t value Pr(>|t|)   
+# (Intercept)         -2.152399   1.396858  -1.541  0.12428   
+# Mn_log2             -0.041781   0.022046  -1.895  0.05892 . 
+# female_d1            0.444902   0.157574   2.823  0.00503 **
+# race_child22        -0.094540   0.050158  -1.885  0.06031 . 
+# race_child23        -0.058228   0.064830  -0.898  0.36974   
+# race_child24         0.011614   0.097611   0.119  0.90536   
+# race_child25        -0.034111   0.047204  -0.723  0.47041   
+# gestage_wks_deliv_d -0.008956   0.010061  -0.890  0.37399   
+# age_mom_enroll_d    -0.005117   0.003181  -1.609  0.10864   
+# bmi_mom_prepreg_d   -0.002403   0.002909  -0.826  0.40930   
+# coll_grad1          -0.017781   0.036552  -0.486  0.62695   
+# nullip1              0.006164   0.030703   0.201  0.84101   
+# gt70k1              -0.018432   0.032247  -0.572  0.56798   
+# smk_preg21           0.018538   0.036246   0.511  0.60937   
+# smk_preg22          -0.066931   0.048176  -1.389  0.16565   
+# Bcell_GS_cb         -3.093082   1.200621  -2.576  0.01041 * 
+# CD4T_GS_cb          -2.771575   1.306603  -2.121  0.03463 * 
+# CD8T_GS_cb          -3.221819   1.193333  -2.700  0.00729 **
+# Gran_GS_cb          -2.840599   1.231364  -2.307  0.02167 * 
+# Mono_GS_cb          -2.636581   1.240351  -2.126  0.03426 * 
+# NK_GS_cb            -3.649269   1.419091  -2.572  0.01055 * 
+# nRBC_GS_cb          -2.764678   1.135999  -2.434  0.01546 * 
+# Mn_log2:female_d1   -0.112145   0.038817  -2.889  0.00411 **
+
+summary(lm(cg26462130 ~ Mn_log2*female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal))
+# Coefficients:
+                     # Estimate Std. Error t value Pr(>|t|)   
+# (Intercept)          1.950696   3.354156   0.582   0.5612   
+# Mn_log2              0.052536   0.052936   0.992   0.3217   
+# female_d1           -1.190458   0.378370  -3.146   0.0018 **
+# race_child22         0.185743   0.120441   1.542   0.1240   
+# race_child23         0.062434   0.155672   0.401   0.6886   
+# race_child24        -0.115980   0.234385  -0.495   0.6210   
+# race_child25         0.081058   0.113346   0.715   0.4750   
+# gestage_wks_deliv_d -0.054356   0.024158  -2.250   0.0251 * 
+# age_mom_enroll_d    -0.006812   0.007639  -0.892   0.3732   
+# bmi_mom_prepreg_d    0.005692   0.006984   0.815   0.4157   
+# coll_grad1           0.055021   0.087769   0.627   0.5312   
+# nullip1             -0.024841   0.073724  -0.337   0.7364   
+# gt70k1              -0.046059   0.077432  -0.595   0.5524   
+# smk_preg21          -0.047188   0.087034  -0.542   0.5881   
+# smk_preg22           0.109746   0.115680   0.949   0.3434   
+# Bcell_GS_cb          1.376018   2.882948   0.477   0.6335   
+# CD4T_GS_cb           6.959568   3.137434   2.218   0.0272 * 
+# CD8T_GS_cb           0.561962   2.865449   0.196   0.8446   
+# Gran_GS_cb           6.342588   2.956769   2.145   0.0327 * 
+# Mono_GS_cb           6.481299   2.978349   2.176   0.0302 * 
+# NK_GS_cb             2.620977   3.407542   0.769   0.4423   
+# nRBC_GS_cb           5.384812   2.727778   1.974   0.0492 * 
+# Mn_log2:female_d1    0.300272   0.093208   3.222   0.0014 **
+
+summary(lm(cg08904630 ~ Mn_log2*female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal))
+# Coefficients:
+                     # Estimate Std. Error t value Pr(>|t|)    
+# (Intercept)         -9.533019   1.796146  -5.307 2.02e-07 ***
+# Mn_log2             -0.001419   0.028347  -0.050    0.960    
+# female_d1           -0.811811   0.202617  -4.007 7.58e-05 ***
+# race_child22         0.021232   0.064496   0.329    0.742    
+# race_child23        -0.038259   0.083362  -0.459    0.647    
+# race_child24        -0.024295   0.125513  -0.194    0.847    
+# race_child25        -0.039943   0.060697  -0.658    0.511    
+# gestage_wks_deliv_d  0.008160   0.012936   0.631    0.529    
+# age_mom_enroll_d    -0.001925   0.004091  -0.470    0.638    
+# bmi_mom_prepreg_d    0.003719   0.003740   0.994    0.321    
+# coll_grad1           0.068310   0.047000   1.453    0.147    
+# nullip1             -0.026822   0.039479  -0.679    0.497    
+# gt70k1              -0.045652   0.041465  -1.101    0.272    
+# smk_preg21           0.060623   0.046607   1.301    0.194    
+# smk_preg22          -0.020541   0.061946  -0.332    0.740    
+# Bcell_GS_cb         14.101623   1.543815   9.134  < 2e-16 ***
+# CD4T_GS_cb          14.075148   1.680092   8.378 1.46e-15 ***
+# CD8T_GS_cb          13.890022   1.534444   9.052  < 2e-16 ***
+# Gran_GS_cb          13.842205   1.583345   8.742  < 2e-16 ***
+# Mono_GS_cb          12.897747   1.594901   8.087 1.11e-14 ***
+# NK_GS_cb            14.121618   1.824734   7.739 1.17e-13 ***
+# nRBC_GS_cb           9.798080   1.460721   6.708 8.33e-11 ***
+# Mn_log2:female_d1    0.201613   0.049913   4.039 6.64e-05 ***
+
+summary(lm(cg22799518 ~ Mn_log2*female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal))
+# Coefficients:
+                     # Estimate Std. Error t value Pr(>|t|)    
+# (Intercept)         -0.708199   4.082573  -0.173  0.86239    
+# Mn_log2             -0.090490   0.064432  -1.404  0.16111    
+# female_d1           -2.261018   0.460540  -4.909 1.42e-06 ***
+# race_child22        -0.064450   0.146597  -0.440  0.66048    
+# race_child23        -0.102794   0.189479  -0.543  0.58782    
+# race_child24        -0.552967   0.285286  -1.938  0.05342 .  
+# race_child25        -0.226607   0.137962  -1.643  0.10141    
+# gestage_wks_deliv_d -0.002956   0.029404  -0.101  0.91999    
+# age_mom_enroll_d    -0.001402   0.009298  -0.151  0.88020    
+# bmi_mom_prepreg_d    0.002804   0.008501   0.330  0.74174    
+# coll_grad1          -0.082518   0.106829  -0.772  0.44040    
+# nullip1              0.113216   0.089735   1.262  0.20794    
+# gt70k1               0.075307   0.094248   0.799  0.42484    
+# smk_preg21           0.118880   0.105935   1.122  0.26257    
+# smk_preg22          -0.289512   0.140802  -2.056  0.04053 *  
+# Bcell_GS_cb          9.501616   3.509034   2.708  0.00712 ** 
+# CD4T_GS_cb           6.973902   3.818786   1.826  0.06870 .  
+# CD8T_GS_cb           9.197588   3.487734   2.637  0.00875 ** 
+# Gran_GS_cb           7.078108   3.598886   1.967  0.05003 .  
+# Mono_GS_cb           4.063570   3.625152   1.121  0.26311    
+# NK_GS_cb             7.530022   4.147552   1.816  0.07033 .  
+# nRBC_GS_cb           6.507717   3.320165   1.960  0.05081 .  
+# Mn_log2:female_d1    0.562089   0.113450   4.955 1.15e-06 ***
+
+summary(lm(cg01744822 ~ Mn_log2*female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal))
+# Coefficients:
+                     # Estimate Std. Error t value Pr(>|t|)    
+# (Intercept)         -6.622745   1.919126  -3.451 0.000630 ***
+# Mn_log2             -0.040108   0.030288  -1.324 0.186331    
+# female_d1            0.855571   0.216489   3.952 9.44e-05 ***
+# race_child22         0.159105   0.068912   2.309 0.021556 *  
+# race_child23         0.120227   0.089070   1.350 0.177982    
+# race_child24        -0.074516   0.134106  -0.556 0.578817    
+# race_child25        -0.016529   0.064853  -0.255 0.798973    
+# gestage_wks_deliv_d -0.004849   0.013822  -0.351 0.725971    
+# age_mom_enroll_d     0.001354   0.004371   0.310 0.756994    
+# bmi_mom_prepreg_d   -0.003337   0.003996  -0.835 0.404322    
+# coll_grad1          -0.060793   0.050218  -1.211 0.226906    
+# nullip1             -0.018412   0.042182  -0.436 0.662756    
+# gt70k1               0.023417   0.044304   0.529 0.597460    
+# smk_preg21          -0.003833   0.049798  -0.077 0.938688    
+# smk_preg22          -0.079608   0.066188  -1.203 0.229914    
+# Bcell_GS_cb          0.245758   1.649518   0.149 0.881652    
+# CD4T_GS_cb           2.229988   1.795126   1.242 0.215007    
+# CD8T_GS_cb           2.709826   1.639506   1.653 0.099294 .  
+# Gran_GS_cb           2.368893   1.691756   1.400 0.162354    
+# Mono_GS_cb           4.173759   1.704103   2.449 0.014823 *  
+# NK_GS_cb             2.302494   1.949672   1.181 0.238447    
+# nRBC_GS_cb           1.964726   1.560736   1.259 0.208955    
+# Mn_log2:female_d1   -0.180845   0.053330  -3.391 0.000779 ***
+
+summary(lm(cg15712310 ~ Mn_log2*female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal))
+# Coefficients:
+                      # Estimate Std. Error t value Pr(>|t|)    
+# (Intercept)         -1.074e+01  1.592e+00  -6.743 6.74e-11 ***
+# Mn_log2             -3.012e-02  2.513e-02  -1.199 0.231532    
+# female_d1            8.028e-01  1.796e-01   4.469 1.07e-05 ***
+# race_child22         1.150e-01  5.718e-02   2.010 0.045173 *  
+# race_child23         5.358e-02  7.391e-02   0.725 0.468978    
+# race_child24        -1.244e-01  1.113e-01  -1.118 0.264452    
+# race_child25        -3.747e-02  5.381e-02  -0.696 0.486745    
+# gestage_wks_deliv_d  4.583e-02  1.147e-02   3.996 7.92e-05 ***
+# age_mom_enroll_d    -7.518e-04  3.627e-03  -0.207 0.835900    
+# bmi_mom_prepreg_d   -4.946e-03  3.316e-03  -1.491 0.136765    
+# coll_grad1          -2.884e-02  4.167e-02  -0.692 0.489332    
+# nullip1             -5.193e-02  3.500e-02  -1.484 0.138843    
+# gt70k1              -2.305e-02  3.676e-02  -0.627 0.531152    
+# smk_preg21          -3.881e-02  4.132e-02  -0.939 0.348225    
+# smk_preg22          -6.084e-03  5.492e-02  -0.111 0.911858    
+# Bcell_GS_cb          4.796e+00  1.369e+00   3.504 0.000520 ***
+# CD4T_GS_cb           7.066e+00  1.490e+00   4.744 3.10e-06 ***
+# CD8T_GS_cb           6.006e+00  1.360e+00   4.415 1.36e-05 ***
+# Gran_GS_cb           7.190e+00  1.404e+00   5.122 5.10e-07 ***
+# Mono_GS_cb           7.275e+00  1.414e+00   5.145 4.54e-07 ***
+# NK_GS_cb             6.728e+00  1.618e+00   4.159 4.07e-05 ***
+# nRBC_GS_cb           6.262e+00  1.295e+00   4.835 2.02e-06 ***
+# Mn_log2:female_d1   -1.571e-01  4.425e-02  -3.551 0.000438 ***
+
+summary(lm(cg03763518 ~ Mn_log2*female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal))
+# Coefficients:
+                     # Estimate Std. Error t value Pr(>|t|)    
+# (Intercept)         -5.556886   3.530716  -1.574  0.11645    
+# Mn_log2             -0.282677   0.055723  -5.073 6.48e-07 ***
+# female_d1           -1.050888   0.398287  -2.639  0.00871 ** 
+# race_child22         0.004720   0.126781   0.037  0.97032    
+# race_child23        -0.130568   0.163866  -0.797  0.42613    
+# race_child24        -0.325536   0.246723  -1.319  0.18791    
+# race_child25        -0.017700   0.119313  -0.148  0.88215    
+# gestage_wks_deliv_d  0.047989   0.025429   1.887  0.05999 .  
+# age_mom_enroll_d    -0.005685   0.008041  -0.707  0.48005    
+# bmi_mom_prepreg_d    0.005167   0.007352   0.703  0.48267    
+# coll_grad1          -0.048079   0.092389  -0.520  0.60313    
+# nullip1             -0.023860   0.077605  -0.307  0.75869    
+# gt70k1               0.062339   0.081508   0.765  0.44491    
+# smk_preg21          -0.077923   0.091615  -0.851  0.39563    
+# smk_preg22           0.172928   0.121769   1.420  0.15649    
+# Bcell_GS_cb          0.341955   3.034705   0.113  0.91035    
+# CD4T_GS_cb           4.776430   3.302587   1.446  0.14903    
+# CD8T_GS_cb           4.607262   3.016284   1.527  0.12758    
+# Gran_GS_cb           0.424865   3.112411   0.137  0.89150    
+# Mono_GS_cb          -0.098276   3.135127  -0.031  0.97501    
+# NK_GS_cb             1.852012   3.586912   0.516  0.60597    
+# nRBC_GS_cb           0.913396   2.871366   0.318  0.75060    
+# Mn_log2:female_d1    0.278244   0.098114   2.836  0.00484 ** 
+```
+
+#### FDR-significant DMPs
+
+```{r, echo = F}
+DMP_Mn_cord[[1]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Mn_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mn_smk/Mn_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mn_smk/Mn_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mn_smk/Mn_log2_manhattan_DMP_adj.png")
+```
+
+#### Mn, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Mn_F_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_F, var = 'Mn_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mn_F_smk')
+
+# Unadjusted, N =  169 
+# Unadjusted, p<0.05:  26444 
+# Unadjusted, FDR<0.05:  3 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  169 
+# Adjusted, p<0.05:  13124 
+# Adjusted, FDR<0.05:  9 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.8902733 
+ 
+# Number of DMRs identified:   7  
+  
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals_F)
+y = pDatcordMetal_F$Mn_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_F)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.352921
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.7004179
+
+DMP_Mn_F_cord[[3]] = NULL
+
+# limma on Beta-values
+DMP_Mn_F_cord_beta = run_EWAS(DNAm = ComBat.Betas.Metals, pheno = pDatcordMetal_F, var = 'Mn_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mn_F_smk_beta')
+
+# Unadjusted, N =  169 
+# Unadjusted, p<0.05:  23593 
+# Unadjusted, FDR<0.05:  94 
+# Unadjusted, pBonf<0.05:  34 
+ 
+# Adjusted, N =  169 
+# Adjusted, p<0.05:  14214 
+# Adjusted, FDR<0.05:  92 
+# Adjusted, pBonf<0.05:  33 
+# Adjusted, lambda:  0.8252193 
+ 
+# Number of DMRs identified:   17 
+
+DMP_Mn_F_cord_beta[[3]][DMP_Mn_F_cord_beta[[3]]$cpg == 'cg00954161',c(2:4)]*100
+              # logFC    CI.L     CI.R
+# cg00954161 1.542443 1.07827 2.006615
+
+DMP_Mn_F_cord_beta[[3]][DMP_Mn_F_cord_beta[[3]]$cpg == 'cg11161853',c(2:4)]*100
+                # logFC       CI.L       CI.R
+# cg11161853 -0.3248247 -0.4268515 -0.2227979
+
+DMP_Mn_F_cord_beta[[3]][DMP_Mn_F_cord_beta[[3]]$cpg == 'cg23903787',c(2:4)]*100
+              # logFC     CI.L     CI.R
+# cg23903787 4.600704 3.322436 5.878972
+
+DMP_Mn_F_cord_beta[[3]][DMP_Mn_F_cord_beta[[3]]$cpg == 'cg19908812',c(2:4)]*100
+                # logFC       CI.L       CI.R
+# cg19908812 -0.2957255 -0.3764997 -0.2149513
+
+DMP_Mn_F_cord_beta[[3]][DMP_Mn_F_cord_beta[[3]]$cpg == 'cg26462130',c(2:4)]*100
+             # logFC     CI.L     CI.R
+# cg26462130 2.04333 1.674487 2.412172
+
+DMP_Mn_F_cord_beta[[3]][DMP_Mn_F_cord_beta[[3]]$cpg == 'cg08904630',c(2:4)]*100
+               # logFC      CI.L     CI.R
+# cg08904630 0.8392856 0.6361831 1.042388
+
+DMP_Mn_F_cord_beta[[3]][DMP_Mn_F_cord_beta[[3]]$cpg == 'cg22799518',c(2:4)]*100
+            # logFC     CI.L     CI.R
+# cg22799518 2.0281 1.620137 2.436062
+
+DMP_Mn_F_cord_beta[[3]][DMP_Mn_F_cord_beta[[3]]$cpg == 'cg01744822',c(2:4)]*100
+               # logFC      CI.L       CI.R
+# cg01744822 -1.156249 -1.454187 -0.8583115
+
+DMP_Mn_F_cord_beta[[3]][DMP_Mn_F_cord_beta[[3]]$cpg == 'cg15712310',c(2:4)]*100
+               # logFC      CI.L      CI.R
+# cg15712310 -2.685899 -3.558376 -1.813422
+
+rm(DMP_Mn_F_cord_beta)
+```
+
+#### FDR-significant DMPs
+
+```{r, echo = F}
+DMP_Mn_F_cord[[1]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Mn_F_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mn_F_smk/Mn_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mn_F_smk/Mn_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mn_F_smk/Mn_log2_manhattan_DMP_adj.png")
+```
+
+#### Mn, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Mn_M_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_M, var = 'Mn_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mn_M_smk')
+
+# # Unadjusted, N =  192 
+# Unadjusted, p<0.05:  9543 
+# Unadjusted, FDR<0.05:  2 
+# Unadjusted, pBonf<0.05:  2 
+ 
+# Adjusted, N =  192 
+# Adjusted, p<0.05:  12768 
+# Adjusted, FDR<0.05:  2 
+# Adjusted, pBonf<0.05:  2 
+# Adjusted, lambda:  0.8373675 
+ 
+# Number of DMRs identified:   4 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals_M)
+y = pDatcordMetal_M$Mn_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_M)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.375884
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.5432648
+
+DMP_Mn_M_cord[[3]] = NULL
+
+# limma on Beta-values
+DMP_Mn_M_cord_beta = run_EWAS(DNAm = ComBat.Betas.Metals, pheno = pDatcordMetal_M, var = 'Mn_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mn_M_smk_beta')
+
+# Unadjusted, N =  192 
+# Unadjusted, p<0.05:  9426 
+# Unadjusted, FDR<0.05:  88 
+# Unadjusted, pBonf<0.05:  22 
+ 
+# Adjusted, N =  192 
+# Adjusted, p<0.05:  13470 
+# Adjusted, FDR<0.05:  106 
+# Adjusted, pBonf<0.05:  27 
+# Adjusted, lambda:  0.8445073 
+ 
+# Number of DMRs identified:   16 
+
+DMP_Mn_M_cord_beta[[3]][DMP_Mn_M_cord_beta[[3]]$cpg == 'cg03763518',c(2:4)]*100
+               # logFC      CI.L      CI.R
+# cg03763518 -3.008463 -3.718318 -2.298607
+
+DMP_Mn_M_cord_beta[[3]][DMP_Mn_M_cord_beta[[3]]$cpg == 'cg02042823',c(2:4)]*100
+              # logFC     CI.L     CI.R
+# cg02042823 3.396064 2.726415 4.065714
+
+rm(DMP_Mn_M_cord_beta)
+```
+
+#### FDR-significant DMPs
+
+```{r, echo = F}
+DMP_Mn_M_cord[[1]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Mn_M_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mn_M_smk/Mn_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mn_M_smk/Mn_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Mn_M_smk/Mn_log2_manhattan_DMP_adj.png")
+```
+
+
+### Pb
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Pb_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal, var = 'Pb_log2', covar = c('female_d', 'race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Pb_smk')
+
+Unadjusted, N =  361 
+Unadjusted, p<0.05:  25856 
+Unadjusted, FDR<0.05:  0 
+Unadjusted, pBonf<0.05:  0 
+ 
+Adjusted, N =  361 
+Adjusted, p<0.05:  15400 
+Adjusted, FDR<0.05:  1 
+Adjusted, pBonf<0.05:  1 
+Adjusted, lambda:  0.9055461 
+ 
+Number of identified DMR:  0
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals)
+y = pDatcordMetal$Pb_log2
+X = model.matrix(~ female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.1927262
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.5246463
+
+DMP_Pb_cord[[3]] = NULL
+
+# limma using Beta-values
+DMP_Pb_cord_beta = run_EWAS(DNAm = ComBat.Betas.Metals, pheno = pDatcordMetal, var = 'Pb_log2', covar = c('female_d', 'race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Pb_smk_beta')
+
+# Unadjusted, N =  361 
+# Unadjusted, p<0.05:  28387 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  361 
+# Adjusted, p<0.05:  15426 
+# Adjusted, FDR<0.05:  1 
+# Adjusted, pBonf<0.05:  1 
+# Adjusted, lambda:  0.9230217 
+ 
+# Number of DMRs identified:   1 
+
+DMP_Pb_cord_beta[[3]][DMP_Pb_cord_beta[[3]]$cpg == 'cg20608990',c(2:4)]*100
+               # logFC      CI.L      CI.R
+# cg20608990 -3.096945 -4.218935 -1.974954
+```
+
+#### FDR-significant DMPs
+
+```{r, echo = F}
+DMP_Pb_cord[[1]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Pb_smk/Pb_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Pb_smk/Pb_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Pb_smk/Pb_log2_manhattan_DMP_adj.png")
+```
+
+
+#### Pb, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Pb_F_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_F, var = 'Pb_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Pb_F_smk')
+ 
+# Unadjusted, N =  169 
+# Unadjusted, p<0.05:  16597 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  169 
+# Adjusted, p<0.05:  20040 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.107063 
+ 
+# Number of identified DMR:  0
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals_F)
+y = pDatcordMetal_F$Pb_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_F)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.0685342
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.2663275
+
+DMP_Pb_F_cord[[3]] = NULL
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Pb_F_smk/Pb_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Pb_F_smk/Pb_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Pb_F_smk/Pb_log2_manhattan_DMP_adj.png")
+```
+
+#### Pb, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Pb_M_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_M, var = 'Pb_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Pb_M_smk')
+
+# # Unadjusted, N =  192 
+# Unadjusted, p<0.05:  19998 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  192 
+# Adjusted, p<0.05:  13991 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.8777486 
+ 
+# Number of DMRs identified:   2 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals_M)
+y = pDatcordMetal_M$Pb_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_M)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.9185112
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.875775 
+
+DMP_Pb_M_cord[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Pb_M_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Pb_M_smk/Pb_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Pb_M_smk/Pb_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '100%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Pb_M_smk/Pb_log2_manhattan_DMP_adj.png")
+```
+
+
+### Se
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Se_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal, var = 'Se_log2', covar = c('female_d', 'race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Se_smk')
+
+# Unadjusted, N =  361 
+# Unadjusted, p<0.05:  23447 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  361 
+# Adjusted, p<0.05:  15944 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.8650339 
+
+# Number of DMRs identified:   2 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals)
+y = pDatcordMetal$Se_log2
+X = model.matrix(~ female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.1199839
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.2784228
+
+DMP_Se_cord[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Se_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Se_smk/Se_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Se_smk/Se_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Se_smk/Se_log2_manhattan_DMP_adj.png")
+```
+
+#### Se, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Se_F_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_F, var = 'Se_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Se_F_smk')
+ 
+# Unadjusted, N =  169 
+# Unadjusted, p<0.05:  11702 
+# Unadjusted, FDR<0.05:  1 
+# Unadjusted, pBonf<0.05:  1 
+ 
+# Adjusted, N =  169 
+# Adjusted, p<0.05:  10681 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.7154979 
+ 
+# Number of DMRs identified:   4 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals_F)
+y = pDatcordMetal_F$Se_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_F)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.6477685
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.8642817
+
+DMP_Se_F_cord[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Se_F_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Se_F_smk/Se_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Se_F_smk/Se_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Se_F_smk/Se_log2_manhattan_DMP_adj.png")
+```
+
+#### Se, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Se_M_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_M, var = 'Se_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Se_M_smk')
+
+# Unadjusted, N =  192 
+# Unadjusted, p<0.05:  28127 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  192 
+# Adjusted, p<0.05:  21716 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.00727 
+ 
+# Number of DMRs identified:   1 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals_M)
+y = pDatcordMetal_M$Se_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_M)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.06037239
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.1802247 
+
+DMP_Se_M_cord[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Se_M_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Se_M_smk/Se_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Se_M_smk/Se_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Se_M_smk/Se_log2_manhattan_DMP_adj.png")
+```
+
+
+### Zn
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Zn_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal, var = 'Zn_log2', covar = c('female_d', 'race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Zn_smk')
+
+# Unadjusted, N =  361 
+# Unadjusted, p<0.05:  25089 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  361 
+# Adjusted, p<0.05:  37298 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.482864 
+ 
+# Number of DMRs identified:   6 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals)
+y = pDatcordMetal$Zn_log2
+X = model.matrix(~ female_d + race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.6866896
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.227695
+
+DMP_Zn_cord[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Zn_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Zn_smk/Zn_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Zn_smk/Zn_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Zn_smk/Zn_log2_manhattan_DMP_adj.png")
+```
+
+#### Zn, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Zn_F_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_F, var = 'Zn_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Zn_F_smk')
+
+# Unadjusted, N =  169 
+# Unadjusted, p<0.05:  35062 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  169 
+# Adjusted, p<0.05:  16490 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.041223 
+ 
+# Number of identified DMR:  0
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals_F)
+y = pDatcordMetal_F$Zn_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_F)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.5957239
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.2421123
+
+DMP_Zn_F_cord[[3]] = NULL
+```
+
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Zn_F_smk/Zn_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Zn_F_smk/Zn_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Zn_F_smk/Zn_log2_manhattan_DMP_adj.png")
+```
+
+#### Zn, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Zn_M_cord = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatcordMetal_M, var = 'Zn_log2', covar = c('race_child2', 'gestage_wks_deliv_d', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_GS_cb', 'CD4T_GS_cb', 'CD8T_GS_cb', 'Gran_GS_cb', 'Mono_GS_cb', 'NK_GS_cb', 'nRBC_GS_cb'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Zn_M_smk')
+
+# Unadjusted, N =  192 
+# Unadjusted, p<0.05:  10405 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  192 
+# Adjusted, p<0.05:  21836 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.096011 
+
+# Number of DMRs identified:   4 
+
+# Global DNAm
+Z = as.matrix(ComBat.Betas.Metals_M)
+y = pDatcordMetal_M$Zn_log2
+X = model.matrix(~ race_child2 + gestage_wks_deliv_d + age_mom_enroll_d + bmi_mom_prepreg_d + coll_grad + nullip + gt70k + smk_preg2 + Bcell_GS_cb + CD4T_GS_cb + CD8T_GS_cb + Gran_GS_cb + Mono_GS_cb + NK_GS_cb + nRBC_GS_cb, data = pDatcordMetal_M)[,-1]
+
+TestDensities2(Z = Z, y = y, X = X)
+# 0.8743051
+
+TestCDFs2(Z = Z, y = y, X = X)
+# 0.7396624 
+
+DMP_Zn_M_cord[[3]] = NULL
+```
+
+```{r, echo = F}
+DMP_Zn_M_cord[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Zn_M_smk/Zn_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Zn_M_smk/Zn_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/CordBlood/Zn_M_smk/Zn_log2_manhattan_DMP_adj.png")
+```
+
+## GO regional analysis
+
+### Combining all regions across metals
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+# DMRs = rbind(DMP_As_cord[[2]], DMP_As_F_cord[[2]], DMP_As_M_cord[[2]], DMP_Ba_F_cord[[2]], DMP_Ba_M_cord[[2]], DMP_Cd_cord[[2]], DMP_Cd_F_cord[[2]], DMP_Cd_M_cord[[2]], DMP_Cr_cord[[2]], DMP_Cr_F_cord[[2]], DMP_Cs_cord[[2]], DMP_Cs_F_cord[[2]], DMP_Cs_M_cord[[2]], DMP_Cu_cord[[2]], DMP_Cu_F_cord[[2]], DMP_Cu_M_cord[[2]], DMP_Hg_cord[[2]], DMP_Hg_M_cord[[2]], DMP_Mg_cord[[2]], DMP_Mg_F_cord[[2]], DMP_Mg_M_cord[[2]], DMP_Mn_cord[[2]], DMP_Mn_F_cord[[2]], DMP_Mn_M_cord[[2]], DMP_Pb_M_cord[[2]], DMP_Se_cord[[2]], DMP_Se_F_cord[[2]], DMP_Se_M_cord[[2]], DMP_Zn_cord[[2]], DMP_Zn_M_cord[[2]])
+
+DMRs = rbind(DMP_As_cord[[2]], DMP_Cd_cord[[2]], DMP_Cr_cord[[2]], DMP_Cs_cord[[2]], DMP_Cu_cord[[2]], DMP_Hg_cord[[2]], DMP_Mg_cord[[2]], DMP_Mn_cord[[2]], DMP_Se_cord[[2]], DMP_Zn_cord[[2]])
+
+DMRs$chr = paste0('chr', DMRs$chr)
+
+dim(DMRs)
+# 50	8
+
+DMRs = DMRs[!duplicated(DMRs[,c(1:3)]),]
+dim(DMRs)
+# 50	8
+
+DMRs = makeGRangesFromDataFrame(DMRs, keep.extra.columns = T, start.field = 'start', end.field = 'end')
+go_region_metals <- goregion(DMRs, all.cpg=rownames(ComBat.Mvalues.Metals), collection="GO", array.type="450K", plot.bias=TRUE)
+table(go_region_metals$P.DE < 0.05 & go_region_metals$DE > 1)
+FALSE  TRUE 
+22559    51
+```
+
+```{r, echo = F}
+go_region_metals[go_region_metals$P.DE < 0.05 & go_region_metals$DE > 1,] %>% kable() %>% kable_styling(font_size = 12) %>% scroll_box(width = "800px", height = "500px")
+```
+
+### As
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+As = DMP_As_cord[[2]]
+As$chr = paste0('chr', As$chr)
+As = makeGRangesFromDataFrame(As, keep.extra.columns = T, start.field = 'start', end.field = 'end')
+go_region_metals_As <- goregion(As, all.cpg=rownames(ComBat.Mvalues.Metals), collection="GO", array.type="450K", plot.bias=TRUE, anno = anno)
+# There are no genes annotated to the significant CpGs
+```
+
+### Cd
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+Cd = DMP_Cd_cord[[2]]
+Cd$chr = paste0('chr', Cd$chr)
+Cd = makeGRangesFromDataFrame(Cd, keep.extra.columns = T, start.field = 'start', end.field = 'end')
+go_region_metals_Cd <- goregion(Cd, all.cpg=rownames(ComBat.Mvalues.Metals), collection="GO", array.type="450K", plot.bias=TRUE, anno = anno)
+table(go_region_metals_Cd$P.DE < 0.05 & go_region_metals_Cd$DE > 1)
+# FALSE  TRUE 
+# 22609     1
+```
+
+```{r, echo = F}
+go_region_metals_Cd[go_region_metals_Cd$P.DE < 0.05 & go_region_metals_Cd$DE > 1,] %>% kable() %>% kable_styling(font_size = 12) %>% scroll_box(width = "800px", height = "500px")
+```
+
+### Cr
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+go_region_metals_Cr[go_region_metals_Cr$P.DE < 0.05 & go_region_metals_Cr$DE > 1,]Cr = DMP_Cr_cord[[2]]
+Cr$chr = paste0('chr', Cr$chr)
+Cr = makeGRangesFromDataFrame(Cr, keep.extra.columns = T, start.field = 'start', end.field = 'end')
+go_region_metals_Cr <- goregion(Cr, all.cpg=rownames(ComBat.Mvalues.Metals), collection="GO", array.type="450K", plot.bias=TRUE, anno = anno)
+table(go_region_metals_Cr$P.DE < 0.05 & go_region_metals_Cr$DE > 1)
+# FALSE  TRUE 
+# 22586    24 
+```
+
+```{r, echo = F}
+go_region_metals_Cr[go_region_metals_Cr$P.DE < 0.05 & go_region_metals_Cr$DE > 1,] %>% kable() %>% kable_styling(font_size = 12) %>% scroll_box(width = "800px", height = "500px")
+```
+
+### Cs
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+Cs = DMP_Cs_cord[[2]]
+Cs$chr = paste0('chr', Cs$chr)
+Cs = makeGRangesFromDataFrame(Cs, keep.extra.columns = T, start.field = 'start', end.field = 'end')
+go_region_metals_Cs <- goregion(Cs, all.cpg=rownames(ComBat.Mvalues.Metals), collection="GO", array.type="450K", plot.bias=TRUE, anno = anno)
+table(go_region_metals_Cs$P.DE < 0.05 & go_region_metals_Cs$DE > 1)
+# FALSE  TRUE 
+# 22590    20
+```
+
+```{r, echo = F}
+go_region_metals_Cs[go_region_metals_Cs$P.DE < 0.05 & go_region_metals_Cs$DE > 1,] %>% kable() %>% kable_styling(font_size = 12) %>% scroll_box(width = "800px", height = "500px")
+```
+
+### Cu
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+Cu = DMP_Cu_cord[[2]]
+Cu$chr = paste0('chr', Cu$chr)
+Cu = makeGRangesFromDataFrame(Cu, keep.extra.columns = T, start.field = 'start', end.field = 'end')
+go_region_metals_Cu <- goregion(Cu, all.cpg=rownames(ComBat.Mvalues.Metals), collection="GO", array.type="450K", plot.bias=TRUE, anno = anno)
+table(go_region_metals_Cu$P.DE < 0.05 & go_region_metals_Cu$DE > 1)
+# FALSE  TRUE 
+# 22588    22 
+```
+
+```{r, echo = F}
+go_region_metals_Cu[go_region_metals_Cu$P.DE < 0.05 & go_region_metals_Cu$DE > 1,] %>% kable() %>% kable_styling(font_size = 12) %>% scroll_box(width = "800px", height = "500px")
+```
+
+### Hg
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+Hg = DMP_Hg_cord[[2]]
+Hg$chr = paste0('chr', Hg$chr)
+Hg = makeGRangesFromDataFrame(Hg, keep.extra.columns = T, start.field = 'start', end.field = 'end')
+go_region_metals_Hg <- goregion(Hg, all.cpg=rownames(ComBat.Mvalues.Metals), collection="GO", array.type="450K", plot.bias=TRUE, anno = anno)
+table(go_region_metals_Hg$P.DE < 0.05 & go_region_metals_Hg$DE > 1)
+# FALSE 
+# 22610 
+```
+
+### Mg
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+Mg = DMP_Mg_cord[[2]]
+Mg$chr = paste0('chr', Mg$chr)
+Mg = makeGRangesFromDataFrame(Mg, keep.extra.columns = T, start.field = 'start', end.field = 'end')
+go_region_metals_Mg <- goregion(Mg, all.cpg=rownames(ComBat.Mvalues.Metals), collection="GO", array.type="450K", plot.bias=TRUE, anno = anno)
+table(go_region_metals_Mg$P.DE < 0.05 & go_region_metals_Mg$DE > 1)
+# FALSE 
+# 22610 
+```
+
+### Mn
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+Mn = DMP_Mn_cord[[2]]
+Mn$chr = paste0('chr', Mn$chr)
+Mn = makeGRangesFromDataFrame(Mn, keep.extra.columns = T, start.field = 'start', end.field = 'end')
+go_region_metals_Mn <- goregion(Mn, all.cpg=rownames(ComBat.Mvalues.Metals), collection="GO", array.type="450K", plot.bias=TRUE, anno = anno)
+table(go_region_metals_Mn$P.DE < 0.05 & go_region_metals_Mn$DE > 1)
+# FALSE 
+# 22610
+```
+
+### Se
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+Se = DMP_Se_cord[[2]]
+Se$chr = paste0('chr', Se$chr)
+Se = makeGRangesFromDataFrame(Se, keep.extra.columns = T, start.field = 'start', end.field = 'end')
+go_region_metals_Se <- goregion(Se, all.cpg=rownames(ComBat.Mvalues.Metals), collection="GO", array.type="450K", plot.bias=TRUE, anno = anno)
+table(go_region_metals_Se$P.DE < 0.05 & go_region_metals_Se$DE > 1)
+# FALSE  TRUE 
+# 22568    42 
+```
+
+```{r, echo = F}
+go_region_metals_Se[go_region_metals_Se$P.DE < 0.05 & go_region_metals_Se$DE > 1,] %>% kable() %>% kable_styling(font_size = 12) %>% scroll_box(width = "800px", height = "500px")
+```
+
+### Zn
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+Zn = DMP_Zn_cord[[2]]
+Zn$chr = paste0('chr', Zn$chr)
+Zn = makeGRangesFromDataFrame(Zn, keep.extra.columns = T, start.field = 'start', end.field = 'end')
+go_region_metals_Zn <- goregion(Zn, all.cpg=rownames(ComBat.Mvalues.Metals), collection="GO", array.type="450K", plot.bias=TRUE, anno = anno)
+table(go_region_metals_Zn$P.DE < 0.05 & go_region_metals_Zn$DE > 1)
+# FALSE  TRUE 
+# 22587    23 
+```
+
+```{r, echo = F}
+go_region_metals_Zn[go_region_metals_Zn$P.DE < 0.05 & go_region_metals_Zn$DE > 1,] %>% kable() %>% kable_styling(font_size = 12) %>% scroll_box(width = "800px", height = "500px")
+```
+
+
+

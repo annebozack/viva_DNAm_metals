@@ -1,0 +1,1696 @@
+---
+title: "Project Viva: Age 7 DNAm and metals EWAS"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 1100)
+```
+
+
+## Required Packages and functions
+
+```{r library,warning=FALSE,message=FALSE,eval=FALSE}
+# libraries
+library(sas7bdat)
+library(sva)
+library(reshape)
+library(ggplot2)
+library(gridExtra)
+library(knitr)
+library(dplyr)
+library(kableExtra)
+library(tidyverse)
+library(minfi)
+library(stringr)
+library(limma)
+library(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+library(minfi)
+library(DMRcate)
+library(UpSetR)
+library(reshape)
+library(corrplot)
+library(factoextra)
+library(ENmix)
+
+# loading annotation
+anno = getAnnotation(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+anno = data.frame(anno)
+
+# loading functions
+setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local')
+source('EWAS functions.R')
+```
+
+## Load DNAm and pheno data
+
+```{r data,warning=FALSE,message=FALSE,eval= FALSE}
+load("/Users/annebozack/Box/NIEHS-R01 ONES/Methylation Data/Age7Blood_ComBat_Betas_Mvals_filteredProbes_metalAnalaysis.RData")
+
+dim(pDatAge7Metal)
+# 333 164
+
+dim(ComBat.Mvalues.Metals)
+# 394460    333
+
+rownames(pDatAge7Metal) = pDatAge7Metal$samplename
+
+pDatAge7Metal$age_yrs_7y_blood = pDatAge7Metal$c_age_days_7y_blood/365
+
+# smoking 
+pDatAge7Metal$smk_preg2[pDatAge7Metal$smokpreg_final_d == 'xnever'] = 0
+pDatAge7Metal$smk_preg2[pDatAge7Metal$smokpreg_final_d == 'former'] = 1
+pDatAge7Metal$smk_preg2[pDatAge7Metal$smokpreg_final_d == 'smoke preg'] = 2
+pDatAge7Metal$smk_preg2 = factor(pDatAge7Metal$smk_preg2)
+
+```
+
+## EWAS
+
+### As
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_As_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal, var = 'As_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/As_smk')
+ 
+# Unadjusted, N =  333 
+# Unadjusted, p<0.05:  23361 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  333 
+# Adjusted, p<0.05:  15990 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.9130156 
+ 
+# Number of DMRs identified:   5 
+
+DMP_As_age7[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_As_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+#### No adjustment for fish consumption
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/As_smk/As_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/As_smk/As_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/As_smk/As_log2_manhattan_DMP_adj.png")
+```
+
+#### As, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+pDatAge7Metal_F = pDatAge7Metal[pDatAge7Metal$female_d == 1,]
+pDatAge7Metal_F$race_child2 = as.factor(as.numeric(pDatAge7Metal_F$race_child2))
+
+DMP_As_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, var = 'As_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/As_F_smk')
+
+# Unadjusted, N =  158 
+# Unadjusted, p<0.05:  26064 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  158 
+# Adjusted, p<0.05:  16222 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.9159963 
+
+# Number of DMRs identified:   4 
+
+DMP_As_F_age7[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_As_F_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+#### No adjustment for fish consumption
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/As_F_smk/As_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/As_F_smk/As_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/As_F_smk/As_log2_manhattan_DMP_adj.png")
+```
+
+#### As, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+pDatAge7Metal_M = pDatAge7Metal[pDatAge7Metal$female_d == 0,]
+pDatAge7Metal_M$race_child2 = as.factor(as.numeric(pDatAge7Metal_M$race_child2))
+
+DMP_As_M_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M, var = 'As_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/As_M_smk')
+
+# Unadjusted, N =  175 
+# Unadjusted, p<0.05:  11497 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  175 
+# Adjusted, p<0.05:  13972 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.8382292 
+ 
+# Number of DMRs identified:   4 
+
+DMP_As_M_age7[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_As_M_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+#### No adjustment for fish consumption
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/As_M_smk/As_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/As_M_smk/As_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/As_M_smk/As_log2_manhattan_DMP_adj.png")
+```
+
+
+### Ba
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Ba_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal, var = 'Ba_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Ba_smk')
+
+Unadjusted, N =  333 
+Unadjusted, p<0.05:  11801 
+Unadjusted, FDR<0.05:  0 
+Unadjusted, pBonf<0.05:  0 
+ 
+Adjusted, N =  333 
+Adjusted, p<0.05:  12058 
+Adjusted, FDR<0.05:  0 
+Adjusted, pBonf<0.05:  0 
+Adjusted, lambda:  0.7933736 
+ 
+Number of DMRs identified:   3 
+
+DMP_Ba_age7[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Ba_age7[[2]] %>% kable() %>% kable_styling(font_size = 14) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Ba_smk/Ba_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Ba_smk/Ba_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Ba_smk/Ba_log2_manhattan_DMP_adj.png")
+```
+
+#### Ba, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Ba_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, var = 'Ba_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Ba_F_smk')
+
+# Unadjusted, N =  158 
+# Unadjusted, p<0.05:  29651 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  158 
+# Adjusted, p<0.05:  23980 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.210756 
+ 
+# Number of DMRs identified:   6
+
+DMP_Ba_F_age7[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Ba_F_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Ba_F_smk/Ba_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Ba_F_smk/Ba_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Ba_F_smk/Ba_log2_manhattan_DMP_adj.png")
+```
+
+#### Ba, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Ba_M_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M, var = 'Ba_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Ba_M_smk')
+
+# Unadjusted, N =  175 
+# Unadjusted, p<0.05:  25363 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  175 
+# Adjusted, p<0.05:  25117 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.190464 
+ 
+# Number of DMRs identified:   3 
+
+DMP_Ba_M_age7[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Ba_M_age7[[2]] %>% kable() %>% kable_styling(font_size = 14) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Ba_M_smk/Ba_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Ba_M_smk/Ba_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Ba_M_smk/Ba_log2_manhattan_DMP_adj.png")
+```
+
+
+### Cd
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cd_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal, var = 'Cd_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cd_smk')
+
+# # Unadjusted, N =  333 
+# Unadjusted, p<0.05:  9428 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  333 
+# Adjusted, p<0.05:  11898 
+# Adjusted, FDR<0.05:  1 
+# Adjusted, pBonf<0.05:  1 
+# Adjusted, lambda:  0.8219919 
+ 
+# Number of DMRs identified:   3 
+
+DMP_Cd_age7[[3]] = NULL
+```
+
+#### FDR-significant DMPs
+
+```{r, echo = F}
+DMP_Cd_age7[[1]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Cd_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cd_smk/Cd_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cd_smk/Cd_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cd_smk/Cd_log2_manhattan_DMP_adj.png")
+```
+
+#### Cd, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cd_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, var = 'Cd_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cd_F_smk')
+
+# Unadjusted, N =  158 
+# Unadjusted, p<0.05:  13276 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  158 
+# Adjusted, p<0.05:  13415 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.8339903 
+ 
+# Number of DMRs identified:   6
+
+DMP_Cd_F_age7[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Cd_F_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cd_F_smk/Cd_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cd_F_smk/Cd_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cd_F_smk/Cd_log2_manhattan_DMP_adj.png")
+```
+
+#### Cd, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cd_M_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M, var = 'Cd_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cd_M_smk')
+
+# Unadjusted, N =  175 
+# Unadjusted, p<0.05:  16666 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  175 
+# Adjusted, p<0.05:  21565 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.111181 
+ 
+# Number of DMRs identified:   3 
+
+# DMP_Cd_M_age7[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Cd_M_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cd_M_smk/Cd_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cd_M_smk/Cd_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cd_M_smk/Cd_log2_manhattan_DMP_adj.png")
+```
+
+
+### Cr
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cr_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal, var = 'Cr_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cr_smk')
+
+# # Unadjusted, N =  333 
+# Unadjusted, p<0.05:  29723 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  333 
+# Adjusted, p<0.05:  23609 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.115003 
+ 
+# Number of DMRs identified:   5 
+
+DMP_Cr_age7[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Cr_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+#### No adjustment for fish consumption
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cr_smk/Cr_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cr_smk/Cr_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cr_smk/Cr_log2_manhattan_DMP_adj.png")
+```
+
+#### Cr, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cr_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, var = 'Cr_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cr_F_smk')
+
+# Unadjusted, N =  158 
+# Unadjusted, p<0.05:  26701 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  158 
+# Adjusted, p<0.05:  24909 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.186951 
+ 
+# Number of identified DMR:  0
+
+DMP_Cr_F_age7[[3]] = NULL
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cr_F_smk/Cr_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cr_F_smk/Cr_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cr_F_smk/Cr_log2_manhattan_DMP_adj.png")
+```
+
+#### Cr, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cr_M_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M, var = 'Cr_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cr_M_smk')
+
+# Unadjusted, N =  175 
+# Unadjusted, p<0.05:  17887 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  175 
+# Adjusted, p<0.05:  12574 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.8769853 
+ 
+# Number of DMRs identified:   1
+
+DMP_Cr_M_age7[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Cr_M_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cr_M_smk/Cr_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cr_M_smk/Cr_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cr_M_smk/Cr_log2_manhattan_DMP_adj.png")
+```
+
+### Cs
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cs_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal, var = 'Cs_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cs_smk')
+
+# Unadjusted, N =  333 
+# Unadjusted, p<0.05:  16687 
+# Unadjusted, FDR<0.05:  4 
+# Unadjusted, pBonf<0.05:  2 
+ 
+# Adjusted, N =  333 
+# Adjusted, p<0.05:  13318 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.8387198 
+ 
+# Number of DMRs identified:   5 
+
+DMP_Cs_age7[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Cs_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cs_smk/Cs_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cs_smk/Cs_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cs_smk/Cs_log2_manhattan_DMP_adj.png")
+```
+
+#### Cs, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cs_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, var = 'Cs_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cs_F_smk')
+
+# Unadjusted, N =  158 
+# Unadjusted, p<0.05:  25871 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  158 
+# Adjusted, p<0.05:  16348 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.9656277 
+ 
+# Number of DMRs identified:   3 
+
+DMP_Cs_F_age7[[3]]= NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Cs_F_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cs_F_smk/Cs_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cs_F_smk/Cs_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cs_F_smk/Cs_log2_manhattan_DMP_adj.png")
+```
+
+#### Cs, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cs_M_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M, var = 'Cs_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cs_M_smk')
+
+Unadjusted, N =  175 
+Unadjusted, p<0.05:  15896 
+Unadjusted, FDR<0.05:  0 
+Unadjusted, pBonf<0.05:  0 
+ 
+Adjusted, N =  175 
+Adjusted, p<0.05:  15716 
+Adjusted, FDR<0.05:  0 
+Adjusted, pBonf<0.05:  0 
+Adjusted, lambda:  0.9276189 
+ 
+Number of DMRs identified:   1 
+ 
+DMP_Cs_M_age7[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Cs_M_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cs_M_smk/Cs_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cs_M_smk/Cs_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cs_M_smk/Cs_log2_manhattan_DMP_adj.png")
+```
+
+
+### Cu
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cu_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal, var = 'Cu_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cu_smk')
+
+# Unadjusted, N =  333 
+# Unadjusted, p<0.05:  10199 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  333 
+# Adjusted, p<0.05:  20001 
+# Adjusted, FDR<0.05:  29 
+# Adjusted, pBonf<0.05:  8 
+# Adjusted, lambda:  1.082819 
+
+# Number of DMRs identified:   18 
+
+DMP_Cu_age7[[3]] = NULL
+```
+
+#### FDR-significant DMPs
+
+```{r, echo = F}
+DMP_Cu_age7[[1]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Cu_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cu_smk/Cu_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cu_smk/Cu_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cu_smk/Cu_log2_manhattan_DMP_adj.png")
+```
+
+#### Cu, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cu_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, var = 'Cu_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cu_F_smk')
+
+# Unadjusted, N =  158 
+# Unadjusted, p<0.05:  19233 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  158 
+# Adjusted, p<0.05:  16152 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.952899 
+ 
+# Number of DMRs identified:   11 
+
+DMP_Cu_F_age7[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Cu_F_age7[[2]] %>% kable() %>% kable_styling(font_size = 14) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cu_F_smk/Cu_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cu_F_smk/Cu_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cu_F_smk/Cu_log2_manhattan_DMP_adj.png")
+```
+
+#### Cu, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Cu_M_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M, var = 'Cu_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cu_M_smk')
+
+# Unadjusted, N =  175 
+# Unadjusted, p<0.05:  8255 
+# Unadjusted, FDR<0.05:  32 
+# Unadjusted, pBonf<0.05:  5 
+ 
+# Adjusted, N =  175 
+# Adjusted, p<0.05:  11939 
+# Adjusted, FDR<0.05:  49 
+# Adjusted, pBonf<0.05:  14 
+# Adjusted, lambda:  0.7284168 
+ 
+# Number of DMRs identified:   14 
+
+DMP_Cu_M_age7[[3]] = NULL
+```
+
+#### FDR-significant DMPs
+
+```{r, echo = F}
+DMP_Cu_M_age7[[1]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Cu_M_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cu_M_smk/Cu_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cu_M_smk/Cu_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cu_M_smk/Cu_log2_manhattan_DMP_adj.png")
+```
+
+
+### Hg
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Hg_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal, var = 'Hg_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Hg_smk')
+
+# Unadjusted, N =  326 
+# Unadjusted, p<0.05:  37293 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  326 
+# Adjusted, p<0.05:  26572 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.213221 
+ 
+# Number of DMRs identified:   4 
+
+DMP_Hg_age7[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Hg_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Hg_smk/Hg_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Hg_smk/Hg_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Hg_smk/Hg_log2_manhattan_DMP_adj.png")
+```
+
+#### Hg, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Hg_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, var = 'Hg_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Hg_F_smk')
+
+# Unadjusted, N =  154 
+# Unadjusted, p<0.05:  35686 
+# Unadjusted, FDR<0.05:  156 
+# Unadjusted, pBonf<0.05:  1 
+ 
+# Adjusted, N =  154 
+# Adjusted, p<0.05:  15090 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.8796583 
+ 
+# Number of DMRs identified:   3 
+
+DMP_Hg_F_age7[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Hg_F_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Hg_F_smk/Hg_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Hg_F_smk/Hg_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Hg_F_smk/Hg_log2_manhattan_DMP_adj.png")
+```
+
+#### Hg, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Hg_M_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M, var = 'Hg_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Hg_M_smk')
+
+# Unadjusted, N =  172 
+# Unadjusted, p<0.05:  22412 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  172 
+# Adjusted, p<0.05:  24091 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.207859 
+ 
+# Number of DMRs identified:   9 
+
+DMP_Hg_M_age7[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Hg_M_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Hg_M_smk/Hg_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Hg_M_smk/Hg_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Hg_M_smk/Hg_log2_manhattan_DMP_adj.png")
+```
+
+
+### Mg
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Mg_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal, var = 'Mg_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mg_smk')
+
+# Unadjusted, N =  333 
+# Unadjusted, p<0.05:  18232 
+# Unadjusted, FDR<0.05:  1 
+# Unadjusted, pBonf<0.05:  1 
+ 
+# Adjusted, N =  333 
+# Adjusted, p<0.05:  15821 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.8746056 
+ 
+# Number of DMRs identified:   5 
+
+DMP_Mg_age7[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Mg_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mg_smk/Mg_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mg_smk/Mg_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mg_smk/Mg_log2_manhattan_DMP_adj.png")
+```
+
+#### Mg, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Mg_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, var = 'Mg_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mg_F_smk')
+
+# Unadjusted, N =  158 
+# Unadjusted, p<0.05:  33977 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  158 
+# Adjusted, p<0.05:  20594 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.079708 
+ 
+# Number of DMRs identified:   2 
+
+DMP_Mg_F_age7[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Mg_F_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mg_F_smk/Mg_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mg_F_smk/Mg_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mg_F_smk/Mg_log2_manhattan_DMP_adj.png")
+```
+
+#### Mg, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Mg_M_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M, var = 'Mg_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mg_M_smk')
+
+# Unadjusted, N =  175 
+# Unadjusted, p<0.05:  9395 
+# Unadjusted, FDR<0.05:  7 
+# Unadjusted, pBonf<0.05:  5 
+ 
+# Adjusted, N =  175 
+# Adjusted, p<0.05:  13551 
+# Adjusted, FDR<0.05:  3 
+# Adjusted, pBonf<0.05:  3 
+# Adjusted, lambda:  0.8048792 
+
+# Number of identified DMR:  2
+
+DMP_Mg_M_age7[[3]] = NULL
+```
+
+#### FDR-significant DMPs
+
+```{r, echo = F}
+DMP_Mg_M_age7[[1]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Mg_M_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mg_M_smk/Mg_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mg_M_smk/Mg_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mg_M_smk/Mg_log2_manhattan_DMP_adj.png")
+```
+
+### Mn
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Mn_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal, var = 'Mn_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mn_smk')
+
+# Unadjusted, N =  333 
+# Unadjusted, p<0.05:  27983 
+# Unadjusted, FDR<0.05:  6 
+# Unadjusted, pBonf<0.05:  1 
+ 
+# Adjusted, N =  333 
+# Adjusted, p<0.05:  37788 
+# Adjusted, FDR<0.05:  13 
+# Adjusted, pBonf<0.05:  3 
+# Adjusted, lambda:  1.339163 
+ 
+# Number of DMRs identified:   10 
+
+DMP_Mn_age7[[3]] = NULL
+
+# limma on Beta-values
+DMP_Mn_age7_beta = run_EWAS(DNAm = ComBat.Betas.Metals, pheno = pDatAge7Metal, var = 'Mn_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mn_smk_beta')
+
+# Unadjusted, N =  333 
+# Unadjusted, p<0.05:  34004 
+# Unadjusted, FDR<0.05:  2096 
+# Unadjusted, pBonf<0.05:  39 
+ 
+# Adjusted, N =  333 
+# Adjusted, p<0.05:  42632 
+# Adjusted, FDR<0.05:  5339 
+# Adjusted, pBonf<0.05:  75 
+# Adjusted, lambda:  1.240793 
+ 
+# Number of DMRs identified:   121 
+
+DMP_Mn_age7_beta[[3]][DMP_Mn_age7_beta[[3]]$cpg == 'cg02042823',c(2:4)]*100
+               # logFC      CI.L     CI.R
+# cg02042823 0.7500762 0.1418274 1.358325
+
+rm(DMP_Mn_age7_beta);gc()
+```
+
+#### FDR-significant DMPs
+
+```{r, echo = F}
+DMP_Mn_age7[[1]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Mn_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mn_smk/Mn_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mn_smk/Mn_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mn_smk/Mn_log2_manhattan_DMP_adj.png")
+```
+
+#### Mn, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Mn_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, var = 'Mn_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mn_F_smk')
+
+# Unadjusted, N =  158 
+# Unadjusted, p<0.05:  28256 
+# Unadjusted, FDR<0.05:  3 
+# Unadjusted, pBonf<0.05:  3 
+ 
+# Adjusted, N =  158 
+# Adjusted, p<0.05:  39831 
+# Adjusted, FDR<0.05:  6 
+# Adjusted, pBonf<0.05:  2 
+# Adjusted, lambda:  1.354546 
+ 
+# Number of DMRs identified:   1
+
+DMP_Mn_F_age7[[3]] = NULL
+
+# limma on Beta-values
+DMP_Mn_F_age7_beta = run_EWAS(DNAm = ComBat.Betas.Metals, pheno = pDatAge7Metal_F, var = 'Mn_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mn_F_smk_beta')
+
+# Unadjusted, N =  158 
+# Unadjusted, p<0.05:  34431 
+# Unadjusted, FDR<0.05:  3379 
+# Unadjusted, pBonf<0.05:  42 
+ 
+# Adjusted, N =  158 
+# Adjusted, p<0.05:  43301 
+# Adjusted, FDR<0.05:  7595 
+# Adjusted, pBonf<0.05:  69 
+# Adjusted, lambda:  1.248445 
+ 
+# Number of DMRs identified:   171 
+
+DMP_Mn_F_age7_beta[[3]][DMP_Mn_F_age7_beta[[3]]$cpg == 'cg00954161',c(2:4)]*100
+              # logFC      CI.L     CI.R
+# cg00954161 1.333573 0.6920163 1.975131
+
+DMP_Mn_F_age7_beta[[3]][DMP_Mn_F_age7_beta[[3]]$cpg == 'cg11161853',c(2:4)]*100
+                # logFC        CI.L       CI.R
+# cg11161853 0.00902998 -0.05582495 0.07388491
+
+DMP_Mn_F_age7_beta[[3]][DMP_Mn_F_age7_beta[[3]]$cpg == 'cg23903787',c(2:4)]*100
+              # logFC      CI.L     CI.R
+# cg23903787 2.035622 0.7851984 3.286046
+
+DMP_Mn_F_age7_beta[[3]][DMP_Mn_F_age7_beta[[3]]$cpg == 'cg19908812',c(2:4)]*100
+                 # logFC       CI.L      CI.R
+# cg19908812 -0.03226102 -0.3388754 0.2743534
+
+DMP_Mn_F_age7_beta[[3]][DMP_Mn_F_age7_beta[[3]]$cpg == 'cg26462130',c(2:4)]*100
+               # logFC      CI.L     CI.R
+# cg26462130 0.9842899 0.6837261 1.284854
+
+DMP_Mn_F_age7_beta[[3]][DMP_Mn_F_age7_beta[[3]]$cpg == 'cg08904630',c(2:4)]*100
+               # logFC      CI.L      CI.R
+# cg08904630 0.4763335 0.3358858 0.6167811
+
+DMP_Mn_F_age7_beta[[3]][DMP_Mn_F_age7_beta[[3]]$cpg == 'cg22799518',c(2:4)]*100
+                # logFC       CI.L       CI.R
+# cg22799518 -0.2005144 -0.4265598 0.02553097
+
+DMP_Mn_F_age7_beta[[3]][DMP_Mn_F_age7_beta[[3]]$cpg == 'cg01744822',c(2:4)]*100
+               # logFC      CI.L      CI.R
+# cg01744822 -1.662075 -2.293577 -1.030573
+
+DMP_Mn_F_age7_beta[[3]][DMP_Mn_F_age7_beta[[3]]$cpg == 'cg15712310',c(2:4)]*100
+                # logFC      CI.L        CI.R
+# cg15712310 -0.9650864 -1.858607 -0.07156615
+
+rm(DMP_Mn_F_age7_beta);gc()
+```
+
+#### FDR-significant DMPs
+
+```{r, echo = F}
+DMP_Mn_F_age7[[1]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Mn_F_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mn_F_smk/Mn_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mn_F_smk/Mn_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mn_F_smk/Mn_log2_manhattan_DMP_adj.png")
+```
+
+#### Mn, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Mn_M_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M, var = 'Mn_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mn_M_smk')
+
+# Unadjusted, N =  175 
+# Unadjusted, p<0.05:  14905 
+# Unadjusted, FDR<0.05:  27 
+# Unadjusted, pBonf<0.05:  9 
+ 
+# Adjusted, N =  175 
+# Adjusted, p<0.05:  18986 
+# Adjusted, FDR<0.05:  30 
+# Adjusted, pBonf<0.05:  13 
+# Adjusted, lambda:  0.9800403 
+ 
+# Number of DMRs identified:   14 
+
+DMP_Mn_M_age7[[3]] = NULL
+
+# limma on Beta-values
+DMP_Mn_M_age7_beta = run_EWAS(DNAm = ComBat.Betas.Metals, pheno = pDatAge7Metal_M, var = 'Mn_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mn_M_smk_beta')
+
+# Unadjusted, N =  175 
+# Unadjusted, p<0.05:  14417 
+# Unadjusted, FDR<0.05:  227 
+# Unadjusted, pBonf<0.05:  82 
+ 
+# Adjusted, N =  175 
+# Adjusted, p<0.05:  18971 
+# Adjusted, FDR<0.05:  257 
+# Adjusted, pBonf<0.05:  85 
+# Adjusted, lambda:  0.9273041 
+ 
+# Number of DMRs identified:   27 
+
+DMP_Mn_M_age7_beta[[3]][DMP_Mn_M_age7_beta[[3]]$cpg == 'cg03763518',c(2:4)]*100
+               # logFC      CI.L     CI.R
+# cg03763518 -3.025927 -4.557014 -1.49484
+
+DMP_Mn_M_age7_beta[[3]][DMP_Mn_M_age7_beta[[3]]$cpg == 'cg02042823',c(2:4)]*100
+              # logFC      CI.L     CI.R
+# cg02042823 1.815752 0.5050111 3.126493
+
+rm(DMP_Mn_M_age7_beta);gc()
+```
+
+#### FDR-significant DMPs
+
+```{r, echo = F}
+DMP_Mn_M_age7[[1]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Mn_M_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mn_M_smk/Mn_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mn_M_smk/Mn_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mn_M_smk/Mn_log2_manhattan_DMP_adj.png")
+```
+
+### Pb
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Pb_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal, var = 'Pb_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Pb_smk')
+
+# Unadjusted, N =  333 
+# Unadjusted, p<0.05:  13157 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  333 
+# Adjusted, p<0.05:  19598 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.056675 
+
+# Number of DMRs identified:   6 
+
+DMP_Pb_age7[[3]] = NULL
+
+# limma on Beta-values
+DMP_Pb_age7_beta = run_EWAS(DNAm = ComBat.Betas.Metals, pheno = pDatAge7Metal, var = 'Pb_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Pb_smk_beta')
+
+# Unadjusted, N =  333 
+# Unadjusted, p<0.05:  13578 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  333 
+# Adjusted, p<0.05:  20646 
+# Adjusted, FDR<0.05:  1 
+# Adjusted, pBonf<0.05:  1 
+# Adjusted, lambda:  1.092762 
+ 
+# Number of DMRs identified:   6 
+
+DMP_Pb_age7_beta[[3]][DMP_Pb_age7_beta[[3]]$cpg == 'cg20608990',c(2:4)]*100
+               # logFC      CI.L       CI.R
+# cg20608990 -1.564971 -2.725569 -0.4043731
+
+rm(DMP_Pb_age7_beta);gc()
+```
+
+#### FDR-sgnificant DMPs
+
+```{r, echo = F}
+DMP_Pb_age7[[1]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Pb_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Pb_smk/Pb_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Pb_smk/Pb_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Pb_smk/Pb_log2_manhattan_DMP_adj.png")
+```
+
+
+#### Pb, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Pb_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, var = 'Pb_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Pb_F_smk')
+
+# Unadjusted, N =  158 
+# Unadjusted, p<0.05:  10571 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  158 
+# Adjusted, p<0.05:  12151 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.7522295 
+ 
+# Number of identified DMR:  0
+
+DMP_Pb_F_age7[[3]] = NULL
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Pb_F_smk/Pb_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Pb_F_smk/Pb_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Pb_F_smk/Pb_log2_manhattan_DMP_adj.png")
+```
+
+#### Pb, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Pb_M_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M, var = 'Pb_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Pb_M_smk')
+
+# Unadjusted, N =  175 
+# Unadjusted, p<0.05:  18362 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  175 
+# Adjusted, p<0.05:  14153 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.9440498 
+ 
+# Number of DMRs identified:   4 
+
+DMP_Pb_M_age7[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Pb_M_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Pb_M_smk/Pb_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '60%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Pb_M_smk/Pb_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '100%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Pb_M_smk/Pb_log2_manhattan_DMP_adj.png")
+```
+
+
+### Se
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Se_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal, var = 'Se_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Se_smk')
+
+# Unadjusted, N =  333 
+# Unadjusted, p<0.05:  17270 
+# Unadjusted, FDR<0.05:  1 
+# Unadjusted, pBonf<0.05:  1 
+ 
+# Adjusted, N =  333 
+# Adjusted, p<0.05:  20324 
+# Adjusted, FDR<0.05:  4 
+# Adjusted, pBonf<0.05:  1 
+# Adjusted, lambda:  0.9736407 
+ 
+# Number of DMRs identified:   3 
+
+DMP_Se_age7[[3]] = NULL
+```
+
+#### FDR-significant DMPs
+
+```{r, echo = F}
+DMP_Se_age7[[1]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Se_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Se_smk/Se_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Se_smk/Se_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Se_smk/Se_log2_manhattan_DMP_adj.png")
+```
+
+#### Se, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Se_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, var = 'Se_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Se_F_smk')
+
+# Unadjusted, N =  158 
+# Unadjusted, p<0.05:  26254 
+# Unadjusted, FDR<0.05:  9 
+# Unadjusted, pBonf<0.05:  2 
+ 
+# Adjusted, N =  158 
+# Adjusted, p<0.05:  16049 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.9296273 
+ 
+# Number of DMRs identified:   3 
+
+DMP_Se_F_age7[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Se_F_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Se_F_smk/Se_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Se_F_smk/Se_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Se_F_smk/Se_log2_manhattan_DMP_adj.png")
+```
+
+#### Se, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Se_M_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M, var = 'Se_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Se_M_smk')
+
+# Unadjusted, N =  175 
+# Unadjusted, p<0.05:  15593 
+# Unadjusted, FDR<0.05:  42 
+# Unadjusted, pBonf<0.05:  12 
+ 
+# Adjusted, N =  175 
+# Adjusted, p<0.05:  13808 
+# Adjusted, FDR<0.05:  20 
+# Adjusted, pBonf<0.05:  6 
+# Adjusted, lambda:  0.7972324 
+ 
+# Number of DMRs identified:   3 
+
+DMP_Se_M_age7[[3]] = NULL
+```
+
+#### FDR-significant DMPs
+
+```{r, echo = F}
+DMP_Se_M_age7[[1]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Se_M_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Se_M_smk/Se_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Se_M_smk/Se_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Se_M_smk/Se_log2_manhattan_DMP_adj.png")
+```
+
+
+### Zn
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Zn_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal, var = 'Zn_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Zn_smk')
+
+# Unadjusted, N =  333 
+# Unadjusted, p<0.05:  12854 
+# Unadjusted, FDR<0.05:  1 
+# Unadjusted, pBonf<0.05:  1 
+ 
+# Adjusted, N =  333 
+# Adjusted, p<0.05:  23322 
+# Adjusted, FDR<0.05:  13 
+# Adjusted, pBonf<0.05:  3 
+# Adjusted, lambda:  1.103711 
+ 
+# Number of DMRs identified:   13
+
+DMP_Zn_age7[[3]] = NULL
+```
+
+#### FDR-significant DMPs
+
+```{r, echo = F}
+DMP_Zn_age7[[1]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Zn_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Zn_smk/Zn_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Zn_smk/Zn_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Zn_smk/Zn_log2_manhattan_DMP_adj.png")
+```
+
+#### Zn, female
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Zn_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, var = 'Zn_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Zn_F_smk')
+
+# Unadjusted, N =  158 
+# Unadjusted, p<0.05:  12830 
+# Unadjusted, FDR<0.05:  0 
+# Unadjusted, pBonf<0.05:  0 
+ 
+# Adjusted, N =  158 
+# Adjusted, p<0.05:  17367 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.9501586 
+
+# Number of DMRs identified:   1 
+
+DMP_Zn_F_age7[[3]] = NULL
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Zn_F_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Zn_F_smk/Zn_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Zn_F_smk/Zn_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Zn_F_smk/Zn_log2_manhattan_DMP_adj.png")
+```
+
+#### Zn, male
+
+```{r, warning=FALSE,message=FALSE,eval=FALSE}
+DMP_Zn_M_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M, var = 'Zn_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Zn_M_smk')
+
+# Unadjusted, N =  175 
+# Unadjusted, p<0.05:  16787 
+# Unadjusted, FDR<0.05:  36 
+# Unadjusted, pBonf<0.05:  8 
+ 
+# Adjusted, N =  175 
+# Adjusted, p<0.05:  14614 
+# Adjusted, FDR<0.05:  37 
+# Adjusted, pBonf<0.05:  3 
+# Adjusted, lambda:  0.8610523 
+ 
+# Number of DMRs identified:   16 
+
+DMP_Zn_M_age7[[3]] = NULL
+```
+
+#### FDR-significant DMPs
+
+```{r, echo = F}
+DMP_Zn_M_age7[[1]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+#### DMRs
+
+```{r, echo = F}
+DMP_Zn_M_age7[[2]] %>% kable() %>% kable_styling(font_size = 12) 
+```
+
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Zn_M_smk/Zn_log2_QQ_DMP_adj.png")
+```
+
+```{r, out.width = '50%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Zn_M_smk/Zn_log2_volcano_DMP_adj.png")
+```
+
+```{r, out.width = '75%'}
+knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Zn_M_smk/Zn_log2_manhattan_DMP_adj.png")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
