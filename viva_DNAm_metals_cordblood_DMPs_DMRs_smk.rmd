@@ -2461,7 +2461,7 @@ knitr::include_graphics("/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_l
 
 ## GO regional analysis
 
-### Combining all regions across metals
+### Combining all regions across metals before running goRegion
 
 ```{r, warning=FALSE,message=FALSE,eval=FALSE}
 # DMRs = rbind(DMP_As_cord[[2]], DMP_As_F_cord[[2]], DMP_As_M_cord[[2]], DMP_Ba_F_cord[[2]], DMP_Ba_M_cord[[2]], DMP_Cd_cord[[2]], DMP_Cd_F_cord[[2]], DMP_Cd_M_cord[[2]], DMP_Cr_cord[[2]], DMP_Cr_F_cord[[2]], DMP_Cs_cord[[2]], DMP_Cs_F_cord[[2]], DMP_Cs_M_cord[[2]], DMP_Cu_cord[[2]], DMP_Cu_F_cord[[2]], DMP_Cu_M_cord[[2]], DMP_Hg_cord[[2]], DMP_Hg_M_cord[[2]], DMP_Mg_cord[[2]], DMP_Mg_F_cord[[2]], DMP_Mg_M_cord[[2]], DMP_Mn_cord[[2]], DMP_Mn_F_cord[[2]], DMP_Mn_M_cord[[2]], DMP_Pb_M_cord[[2]], DMP_Se_cord[[2]], DMP_Se_F_cord[[2]], DMP_Se_M_cord[[2]], DMP_Zn_cord[[2]], DMP_Zn_M_cord[[2]])
