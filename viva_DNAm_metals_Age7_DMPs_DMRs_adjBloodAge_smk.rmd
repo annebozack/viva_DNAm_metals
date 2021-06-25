@@ -48,6 +48,11 @@ source('EWAS functions.R')
 ## Load DNAm and pheno data
 
 ```{r data,warning=FALSE,message=FALSE,eval= FALSE}
+# infants with cord blood data
+load("/Users/annebozack/Box/NIEHS-R01 ONES/Methylation Data/CordBlood_ComBat_Betas_Mvals_filteredProbes_metalAnalysis.RData")
+rm(ComBat.Mvalues.Metals, ComBat.Betas.Metals);gc()
+
+# age 7 data
 load("/Users/annebozack/Box/NIEHS-R01 ONES/Methylation Data/Age7Blood_ComBat_Betas_Mvals_filteredProbes_metalAnalaysis.RData")
 
 dim(pDatAge7Metal)
@@ -66,6 +71,10 @@ pDatAge7Metal$smk_preg2[pDatAge7Metal$smokpreg_final_d == 'former'] = 1
 pDatAge7Metal$smk_preg2[pDatAge7Metal$smokpreg_final_d == 'smoke preg'] = 2
 pDatAge7Metal$smk_preg2 = factor(pDatAge7Metal$smk_preg2)
 
+# pheno with overlap between cord blood and age 7
+pDatAge7Metal_cord = pDatAge7Metal[pDatAge7Metal$alias %in% pDatcordMetal$alias,]
+dim(pDatAge7Metal_cord)
+# 189 166
 ```
 
 ## EWAS
@@ -89,6 +98,19 @@ DMP_As_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal, var 
 # Number of DMRs identified:   5 
 
 DMP_As_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_As_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_cord, var = 'As_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/As_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  189 
+# Adjusted, p<0.05:  17770 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.9489588 
+ 
+# Number of DMRs identified:   7 
+
+rm(DMP_As_age7_cordoverlap)
 ```
 
 #### DMRs
@@ -133,6 +155,22 @@ DMP_As_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, 
 # Number of DMRs identified:   4 
 
 DMP_As_F_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+pDatAge7Metal_F_cord = pDatAge7Metal_cord[pDatAge7Metal_cord$female_d == 1,]
+pDatAge7Metal_F_cord$race_child2 = as.factor(as.numeric(pDatAge7Metal_F_cord$race_child2))
+
+DMP_As_F_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F_cord, var = 'As_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/As_F_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  85 
+# Adjusted, p<0.05:  16601 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.9435264 
+ 
+# Number of DMRs identified:   2 
+
+rm(DMP_As_F_age7_cordoverlap)
 ```
 
 #### DMRs
@@ -177,6 +215,22 @@ DMP_As_M_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M, 
 # Number of DMRs identified:   4 
 
 DMP_As_M_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+pDatAge7Metal_M_cord = pDatAge7Metal_cord[pDatAge7Metal_cord$female_d == 0,]
+pDatAge7Metal_M_cord$race_child2 = as.factor(as.numeric(pDatAge7Metal_M_cord$race_child2))
+
+DMP_As_M_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M_cord, var = 'As_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/As_M_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  104 
+# Adjusted, p<0.05:  17353 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.9654988 
+ 
+# Number of DMRs identified:   7 
+
+rm(DMP_As_M_age7_cordoverlap)
 ```
 
 #### DMRs
@@ -219,6 +273,19 @@ Adjusted, lambda:  0.7933736
 Number of DMRs identified:   3 
 
 DMP_Ba_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Ba_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_cord, var = 'Ba_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Ba_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  189 
+# Adjusted, p<0.05:  14226 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.8384028 
+ 
+# Number of DMRs identified:   4 
+
+rm(DMP_Ba_age7_cordoverlap)
 ```
 
 #### DMRs
@@ -258,6 +325,19 @@ DMP_Ba_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, 
 # Number of DMRs identified:   6
 
 DMP_Ba_F_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Ba_F_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F_cord, var = 'Ba_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Ba_F_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  85 
+# Adjusted, p<0.05:  26653 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.238713 
+ 
+# Number of DMRs identified:   4 
+
+rm(DMP_Ba_F_age7_cordoverlap)
 ```
 
 #### DMRs
@@ -297,6 +377,19 @@ DMP_Ba_M_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M, 
 # Number of DMRs identified:   3 
 
 DMP_Ba_M_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Ba_M_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M_cord, var = 'Ba_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Ba_M_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  104 
+# Adjusted, p<0.05:  15406 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.9304526 
+ 
+# Number of DMRs identified:   2 
+
+rm(DMP_Ba_M_age7_cordoverlap)
 ```
 
 #### DMRs
@@ -337,6 +430,19 @@ DMP_Cd_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal, var 
 # Number of DMRs identified:   3 
 
 DMP_Cd_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Cd_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_cord, var = 'Cd_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cd_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  189 
+# Adjusted, p<0.05:  14918 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.9046147 
+ 
+# Number of DMRs identified:   3 
+
+rm(DMP_Cd_age7_cordoverlap)
 ```
 
 #### FDR-significant DMPs
@@ -382,6 +488,19 @@ DMP_Cd_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, 
 # Number of DMRs identified:   6
 
 DMP_Cd_F_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Cd_F_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F_cord, var = 'Cd_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cd_F_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  85 
+# Adjusted, p<0.05:  17304 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.9489797 
+ 
+# Number of DMRs identified:   7 
+
+rm(DMP_Cd_F_age7_cordoverlap)
 ```
 
 #### DMRs
@@ -421,6 +540,20 @@ DMP_Cd_M_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M, 
 # Number of DMRs identified:   3 
 
 # DMP_Cd_M_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Cd_M_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M_cord, var = 'Cd_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cd_M_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  104 
+# Adjusted, p<0.05:  22052 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.140586 
+ 
+# Number of DMRs identified:   1 
+
+rm(DMP_Cd_M_age7_cordoverlap)
+
 ```
 
 #### DMRs
@@ -461,6 +594,18 @@ DMP_Cr_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal, var 
 # Number of DMRs identified:   5 
 
 DMP_Cr_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Cr_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_cord, var = 'Cr_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cr_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  189 
+# Adjusted, p<0.05:  19986 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.050624 
+ 
+# Number of DMRs identified:   4 
+
 ```
 
 #### DMRs
@@ -502,6 +647,17 @@ DMP_Cr_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, 
 # Number of identified DMR:  0
 
 DMP_Cr_F_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Cr_F_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F_cord, var = 'Cr_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cr_F_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  85 
+# Adjusted, p<0.05:  29235 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.299635 
+ 
+# Number of identified DMR:  0
 ```
 
 ```{r, out.width = '50%'}
@@ -535,6 +691,18 @@ DMP_Cr_M_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M, 
 # Number of DMRs identified:   1
 
 DMP_Cr_M_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Cr_M_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M_cord, var = 'Cr_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cr_M_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  104 
+# Adjusted, p<0.05:  14324 
+# Adjusted, FDR<0.05:  1 
+# Adjusted, pBonf<0.05:  1 
+# Adjusted, lambda:  0.874334 
+ 
+# Number of DMRs identified:   1 
+
 ```
 
 #### DMRs
@@ -574,6 +742,17 @@ DMP_Cs_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal, var 
 # Number of DMRs identified:   5 
 
 DMP_Cs_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Cs_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_cord, var = 'Cs_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cs_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  189 
+# Adjusted, p<0.05:  13290 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.8376426 
+ 
+# Number of DMRs identified:   5 
 ```
 
 #### DMRs
@@ -613,6 +792,20 @@ DMP_Cs_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, 
 # Number of DMRs identified:   3 
 
 DMP_Cs_F_age7[[3]]= NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Cs_F_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F_cord, var = 'Cs_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cs_F_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  85 
+# Adjusted, p<0.05:  12170 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.7999635 
+ 
+# Number of DMRs identified:   2 
+
+rm(DMP_Cs_F_age7_cordoverlap);gc()
+
 ```
 
 #### DMRs
@@ -652,6 +845,19 @@ Adjusted, lambda:  0.9276189
 Number of DMRs identified:   1 
  
 DMP_Cs_M_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Cs_M_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M_cord, var = 'Cs_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cs_M_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  104 
+# Adjusted, p<0.05:  15813 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.8980376 
+ 
+# Number of DMRs identified:   10 
+
+rm(DMP_Cs_M_age7_cordoverlap);gc()
 ```
 
 #### DMRs
@@ -692,6 +898,19 @@ DMP_Cu_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal, var 
 # Number of DMRs identified:   18 
 
 DMP_Cu_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Cu_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_cord, var = 'Cu_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cu_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  189 
+# Adjusted, p<0.05:  18618 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.021546 
+ 
+# Number of identified DMR:  0
+
+rm(DMP_Cu_age7_cordoverlap);gc()
 ```
 
 #### FDR-significant DMPs
@@ -737,6 +956,19 @@ DMP_Cu_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, 
 # Number of DMRs identified:   11 
 
 DMP_Cu_F_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Cu_F_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F_cord, var = 'Cu_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cu_F_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  85 
+# Adjusted, p<0.05:  12980 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.8014961 
+ 
+# Number of DMRs identified:   2 
+
+rm(DMP_Cu_F_age7_cordoverlap);gc
 ```
 
 #### DMRs
@@ -776,6 +1008,19 @@ DMP_Cu_M_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M, 
 # Number of DMRs identified:   14 
 
 DMP_Cu_M_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Cu_M_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M_cord, var = 'Cu_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Cu_M_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  104 
+# Adjusted, p<0.05:  14082 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.8571026 
+ 
+# Number of DMRs identified:   10 
+
+rm(DMP_Cu_M_age7_cordoverlap);gc
 ```
 
 #### FDR-significant DMPs
@@ -822,6 +1067,19 @@ DMP_Hg_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal, var 
 # Number of DMRs identified:   4 
 
 DMP_Hg_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Hg_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_cord, var = 'Hg_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Hg_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  186 
+# Adjusted, p<0.05:  25003 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.148742 
+ 
+# Number of DMRs identified:   3 
+
+rm(DMP_Hg_age7_cordoverlap);gc()
 ```
 
 #### DMRs
@@ -861,6 +1119,19 @@ DMP_Hg_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, 
 # Number of DMRs identified:   3 
 
 DMP_Hg_F_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Hg_F_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F_cord, var = 'Hg_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Hg_F_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  83 
+# Adjusted, p<0.05:  11644 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.7673862 
+ 
+# Number of DMRs identified:   2 
+
+rm(DMP_Hg_F_age7_cordoverlap);gc()
 ```
 
 #### DMRs
@@ -900,6 +1171,19 @@ DMP_Hg_M_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M, 
 # Number of DMRs identified:   9 
 
 DMP_Hg_M_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Hg_M_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M_cord, var = 'Hg_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Hg_M_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  103 
+# Adjusted, p<0.05:  24791 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.169208 
+
+# Number of DMRs identified:   5 
+
+rm(DMP_Hg_M_age7_cordoverlap);gc()
 ```
 
 #### DMRs
@@ -940,6 +1224,19 @@ DMP_Mg_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal, var 
 # Number of DMRs identified:   5 
 
 DMP_Mg_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Mg_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_cord, var = 'Mg_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mg_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  189 
+# Adjusted, p<0.05:  16543 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.9351369 
+ 
+# Number of DMRs identified:   2 
+
+rm(DMP_Mg_age7_cordoverlap);gc()
 ```
 
 #### DMRs
@@ -979,6 +1276,19 @@ DMP_Mg_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, 
 # Number of DMRs identified:   2 
 
 DMP_Mg_F_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Mg_F_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F_cord, var = 'Mg_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mg_F_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  85 
+# Adjusted, p<0.05:  17171 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.9523752 
+ 
+# Number of DMRs identified:   3 
+
+rm(DMP_Mg_F_age7_cordoverlap);gc()
 ```
 
 #### DMRs
@@ -1018,6 +1328,19 @@ DMP_Mg_M_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M, 
 # Number of identified DMR:  2
 
 DMP_Mg_M_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Mg_M_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M_cord, var = 'Mg_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mg_M_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  104 
+# Adjusted, p<0.05:  14864 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.8507625 
+ 
+# Number of DMRs identified:   5 
+
+rm(DMP_Mg_M_age7_cordoverlap);gc()
 ```
 
 #### FDR-significant DMPs
@@ -1085,6 +1408,19 @@ DMP_Mn_age7_beta[[3]][DMP_Mn_age7_beta[[3]]$cpg == 'cg02042823',c(2:4)]*100
 # cg02042823 0.7500762 0.1418274 1.358325
 
 rm(DMP_Mn_age7_beta);gc()
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Mn_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_cord, var = 'Mn_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mn_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  189 
+# Adjusted, p<0.05:  39204 
+# Adjusted, FDR<0.05:  65 
+# Adjusted, pBonf<0.05:  8 
+# Adjusted, lambda:  1.310818 
+ 
+# Number of DMRs identified:   9 
+
+rm(DMP_Mn_age7_cordoverlap);gc()
 ```
 
 #### FDR-significant DMPs
@@ -1184,6 +1520,20 @@ DMP_Mn_F_age7_beta[[3]][DMP_Mn_F_age7_beta[[3]]$cpg == 'cg15712310',c(2:4)]*100
 # cg15712310 -0.9650864 -1.858607 -0.07156615
 
 rm(DMP_Mn_F_age7_beta);gc()
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Mn_F_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F_cord, var = 'Mn_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mn_F_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  85 
+# Adjusted, p<0.05:  45254 
+# Adjusted, FDR<0.05:  433 
+# Adjusted, pBonf<0.05:  7 
+# Adjusted, lambda:  1.388295 
+ 
+# Number of DMRs identified:   25 
+
+rm(DMP_Mn_F_age7_cordoverlap);gc()
+
 ```
 
 #### FDR-significant DMPs
@@ -1255,6 +1605,17 @@ DMP_Mn_M_age7_beta[[3]][DMP_Mn_M_age7_beta[[3]]$cpg == 'cg02042823',c(2:4)]*100
 # cg02042823 1.815752 0.5050111 3.126493
 
 rm(DMP_Mn_M_age7_beta);gc()
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Mn_M_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M_cord, var = 'Mn_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Mn_M_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  104 
+# Adjusted, p<0.05:  15442 
+# Adjusted, FDR<0.05:  45 
+# Adjusted, pBonf<0.05:  12 
+# Adjusted, lambda:  0.8201768 
+
+# Number of DMRs identified:   16 
 ```
 
 #### FDR-significant DMPs
@@ -1322,12 +1683,19 @@ DMP_Pb_age7_beta[[3]][DMP_Pb_age7_beta[[3]]$cpg == 'cg20608990',c(2:4)]*100
 # cg20608990 -1.564971 -2.725569 -0.4043731
 
 rm(DMP_Pb_age7_beta);gc()
-```
 
-#### FDR-sgnificant DMPs
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Pb_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_cord, var = 'Pb_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Pb_smk_cordoverlap', unadj = FALSE, plot = FALSE)
 
-```{r, echo = F}
-DMP_Pb_age7[[1]] %>% kable() %>% kable_styling(font_size = 12) 
+# Adjusted, N =  189 
+# Adjusted, p<0.05:  43924 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.730948 
+ 
+# Number of identified DMR:  0
+
+rm(DMP_Pb_age7_cordoverlap);gc()
 ```
 
 #### DMRs
@@ -1368,6 +1736,19 @@ DMP_Pb_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, 
 # Number of identified DMR:  0
 
 DMP_Pb_F_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Pb_F_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F_cord, var = 'Pb_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Pb_F_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  85 
+# Adjusted, p<0.05:  15685 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.9341139 
+ 
+# Number of identified DMR:  0
+
+rm(DMP_Pb_F_age7_cordoverlap);gc()
 ```
 
 ```{r, out.width = '50%'}
@@ -1401,6 +1782,19 @@ DMP_Pb_M_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M, 
 # Number of DMRs identified:   4 
 
 DMP_Pb_M_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Pb_M_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M_cord, var = 'Pb_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Pb_M_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  104 
+# Adjusted, p<0.05:  21607 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  1.165536 
+ 
+# Number of DMRs identified:   6 
+
+rm(DMP_Pb_M_age7_cordoverlap);gc()
 ```
 
 #### DMRs
@@ -1441,6 +1835,17 @@ DMP_Se_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal, var 
 # Number of DMRs identified:   3 
 
 DMP_Se_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Se_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_cord, var = 'Se_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Se_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  189 
+# Adjusted, p<0.05:  16337 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.8902786 
+ 
+# Number of DMRs identified:   2
 ```
 
 #### FDR-significant DMPs
@@ -1486,6 +1891,19 @@ DMP_Se_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, 
 # Number of DMRs identified:   3 
 
 DMP_Se_F_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Se_F_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F_cord, var = 'Se_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Se_F_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  85 
+# Adjusted, p<0.05:  16966 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.9935428 
+ 
+# Number of DMRs identified:   5 
+
+rm(DMP_Se_F_age7_cordoverlap);gc()
 ```
 
 #### DMRs
@@ -1525,6 +1943,19 @@ DMP_Se_M_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M, 
 # Number of DMRs identified:   3 
 
 DMP_Se_M_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Se_M_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M_cord, var = 'Se_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Se_M_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+Adjusted, N =  104 
+Adjusted, p<0.05:  13747 
+Adjusted, FDR<0.05:  0 
+Adjusted, pBonf<0.05:  0 
+Adjusted, lambda:  0.8042952 
+ 
+Number of DMRs identified:   4 
+
+rm(DMP_Se_M_age7_cordoverlap);gc()
 ```
 
 #### FDR-significant DMPs
@@ -1571,6 +2002,19 @@ DMP_Zn_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal, var 
 # Number of DMRs identified:   13
 
 DMP_Zn_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Zn_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_cord, var = 'Zn_log2', covar = c('female_d', 'race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Zn_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  189 
+# Adjusted, p<0.05:  14814 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.8661672 
+ 
+# Number of DMRs identified:   5 
+
+rm(DMP_Zn_age7_cordoverlap);gc()
 ```
 
 #### FDR-significant DMPs
@@ -1616,6 +2060,19 @@ DMP_Zn_F_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F, 
 # Number of DMRs identified:   1 
 
 DMP_Zn_F_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Zn_F_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_F_cord, var = 'Zn_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Zn_F_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  85 
+# Adjusted, p<0.05:  12704 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.7959756 
+ 
+# Number of DMRs identified:   2 
+
+rm(DMP_Zn_F_age7_cordoverlap);gc()
 ```
 
 #### DMRs
@@ -1655,6 +2112,19 @@ DMP_Zn_M_age7 = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M, 
 # Number of DMRs identified:   16 
 
 DMP_Zn_M_age7[[3]] = NULL
+
+# Sensitivity analysis only including overlap with cord blood infants
+DMP_Zn_M_age7_cordoverlap = run_EWAS(DNAm = ComBat.Mvalues.Metals, pheno = pDatAge7Metal_M_cord, var = 'Zn_log2', covar = c('race_child2', 'age_yrs_7y_blood', 'age_mom_enroll_d', 'bmi_mom_prepreg_d', 'coll_grad', 'nullip', 'gt70k', 'smk_preg2', 'Bcell_S_7y', 'CD4T_S_7y', 'CD8T_S_7y', 'Neu_S_7y', 'Mono_S_7y', 'NK_S_7y'), anno = anno, path = '/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local/Age7_adjBloodAge/Zn_M_smk_cordoverlap', unadj = FALSE, plot = FALSE)
+
+# Adjusted, N =  104 
+# Adjusted, p<0.05:  14686 
+# Adjusted, FDR<0.05:  0 
+# Adjusted, pBonf<0.05:  0 
+# Adjusted, lambda:  0.907332 
+ 
+# Number of DMRs identified:   5
+
+rm(DMP_Zn_M_age7_cordoverlap);gc()
 ```
 
 #### FDR-significant DMPs
