@@ -1,6 +1,6 @@
 # Prenatal metal exposure, cord blood DNA methylation and persistence in childhood: an epigenome-wide association study of twelve metals
 
-This repository contains the necessary scripts used in the analysis of Bozack et al.'s "Prenatal metal exposure, cord blood DNA methylation and persistence in childhood: an epigenome-wide association study of twelve metals".
+This repository contains the necessary scripts used in the analysis of Bozack et al.'s "Prenatal metal exposure, cord blood DNA methylation and persistence in childhood: an epigenome-wide association study of twelve metals" <i>Clin Epigenetics</i> 2021 Nov 19;13(1):208, available at <a href="https://doi.org/10.1186/s13148-021-01198-z">doi.org/10.1186/s13148-021-01198-z</a>.
 
 The organization of the repository is as follows:
 
