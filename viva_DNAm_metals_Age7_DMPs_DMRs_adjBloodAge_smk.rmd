@@ -41,7 +41,6 @@ anno = getAnnotation(IlluminaHumanMethylation450kanno.ilmn12.hg19)
 anno = data.frame(anno)
 
 # loading functions
-setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local')
 source('EWAS functions.R')
 ```
 
@@ -49,11 +48,11 @@ source('EWAS functions.R')
 
 ```{r data,warning=FALSE,message=FALSE,eval= FALSE}
 # infants with cord blood data
-load("/Users/annebozack/Box/NIEHS-R01 ONES/Methylation Data/CordBlood_ComBat_Betas_Mvals_filteredProbes_metalAnalysis.RData")
+load("CordBlood_ComBat_Betas_Mvals_filteredProbes_metalAnalysis.RData")
 rm(ComBat.Mvalues.Metals, ComBat.Betas.Metals);gc()
 
 # age 7 data
-load("/Users/annebozack/Box/NIEHS-R01 ONES/Methylation Data/Age7Blood_ComBat_Betas_Mvals_filteredProbes_metalAnalaysis.RData")
+load("Age7Blood_ComBat_Betas_Mvals_filteredProbes_metalAnalaysis.RData")
 
 dim(pDatAge7Metal)
 # 333 164
