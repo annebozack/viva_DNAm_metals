@@ -42,14 +42,13 @@ anno = getAnnotation(IlluminaHumanMethylation450kanno.ilmn12.hg19)
 anno = data.frame(anno)
 
 # loading functions
-setwd('/Users/annebozack/Documents/Cardenas/viva_DNAm_metals_local')
 source('EWAS functions.R')
 ```
 
 ## Load DNAm and pheno data
 
 ```{r data,warning=FALSE,message=FALSE,eval= FALSE}
-load("/Users/annebozack/Box/NIEHS-R01 ONES/Methylation Data/CordBlood_ComBat_Betas_Mvals_filteredProbes_metalAnalysis.RData")
+load("CordBlood_ComBat_Betas_Mvals_filteredProbes_metalAnalysis.RData")
 
 dim(pDatcordMetal)
 # 361 164
